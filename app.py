@@ -661,7 +661,12 @@ if st.session_state["perfil"] == "Admin":
     with aba_prod:
         st.subheader("📝 Gestão e Cadastro de Produtos")
         
-        tab_p1, tab_p2 = st.tabs(["Cadastrar Manualmente", "📥 Importar em Lote (Planilha Excel/CSV)"])
+        tab_p1, tab_p2, tab_p3, tab_p4 = st.tabs([
+            "Cadastrar Manualmente", 
+            "✏️ Editar Produto", 
+            "❌ Excluir Produto", 
+            "📥 Importar em Lote (Planilha Excel/CSV)"
+        ])
         
         # Sub-aba 1: Cadastro Manual
         with tab_p1:
@@ -691,8 +696,88 @@ if st.session_state["perfil"] == "Admin":
                     else:
                         st.error("Preencha o SKU e o Nome do Produto.")
 
-        # Sub-aba 2: Importação em Lote via CSV/Excel
-        with tab_p2:
+        # Sub-aba 2: Editar Produto (NOVO)
+        with tab_p3 if False else tab_p2:
+            conn = get_connection()
+            df_prods_edit = pd.read_sql_query("SELECT * FROM produtos ORDER BY nome ASC", conn)
+            cats_edit = pd.read_sql_query("SELECT nome FROM categorias ORDER BY nome ASC", conn)["nome"].tolist()
+            conn.close()
+
+            if not df_prods_edit.empty:
+                opcoes_prod = {f"{r['sku']} - {r['nome']}": r['sku'] for _, r in df_prods_edit.iterrows()}
+                prod_selecionado_label = st.selectbox("Selecione o Produto para Editar", list(opcoes_prod.keys()), key="sb_edit_prod")
+                sku_edit = opcoes_prod[prod_selecionado_label]
+
+                # Dados atuais do produto selecionado
+                dados_prod = df_prods_edit[df_prods_edit['sku'] == sku_edit].iloc[0]
+
+                with st.form("form_edit_prod"):
+                    st.info(f"**SKU:** {sku_edit} (O SKU não pode ser alterado)")
+                    novo_nome = st.text_input("Nome do Produto", value=str(dados_prod['nome']))
+                    
+                    idx_cat = cats_edit.index(dados_prod['categoria']) if dados_prod['categoria'] in cats_edit else 0
+                    nova_cat = st.selectbox("Categoria", cats_edit if cats_edit else ["Padrão"], index=idx_cat)
+                    
+                    nova_qtd_est = st.number_input("Quantidade em Estoque", value=int(dados_prod['qtd_estoque']), min_value=0, step=1)
+                    nova_qtd_min = st.number_input("Estoque Mínimo (Alerta)", value=int(dados_prod['qtd_minima']), min_value=0, step=1)
+                    novo_preco = st.number_input("Preço Unitário (R$)", value=float(dados_prod['preco_unitario']), min_value=0.0, step=0.5)
+
+                    if st.form_submit_button("Salvar Alterações", use_container_width=True):
+                        if novo_nome.strip():
+                            conn = get_connection()
+                            c = conn.cursor()
+                            c.execute("""
+                                UPDATE produtos 
+                                SET nome = ?, categoria = ?, qtd_estoque = ?, qtd_minima = ?, preco_unitario = ?
+                                WHERE sku = ?
+                            """, (novo_nome.strip(), nova_cat, nova_qtd_est, nova_qtd_min, novo_preco, sku_edit))
+                            conn.commit()
+                            conn.close()
+                            st.success(f"Produto '{novo_nome}' (SKU: {sku_edit}) atualizado com sucesso!")
+                            st.rerun()
+                        else:
+                            st.error("O nome do produto não pode ficar em branco.")
+            else:
+                st.info("Nenhum produto disponível para edição.")
+
+        # Sub-aba 3: Excluir Produto (NOVO)
+        with tab_p3:
+            conn = get_connection()
+            df_prods_del = pd.read_sql_query("SELECT sku, nome, qtd_estoque FROM produtos ORDER BY nome ASC", conn)
+            conn.close()
+
+            if not df_prods_del.empty:
+                opcoes_del = {f"{r['sku']} - {r['nome']} (Estoque: {r['qtd_estoque']})": r['sku'] for _, r in df_prods_del.iterrows()}
+                prod_del_label = st.selectbox("Selecione o Produto para Excluir", list(opcoes_del.keys()), key="sb_del_prod")
+                sku_del = opcoes_del[prod_del_label]
+
+                st.warning("⚠️ **Atenção:** A exclusão de um produto é permanente.")
+                confirmar = st.checkbox(f"Estou ciente e desejo excluir o produto SKU: {sku_del}")
+
+                if st.button("❌ Excluir Produto Definitivamente", use_container_width=True, type="primary"):
+                    if confirmar:
+                        conn = get_connection()
+                        c = conn.cursor()
+                        
+                        # Verifica se o produto tem histórico de movimentações
+                        c.execute("SELECT COUNT(*) FROM movimentacoes WHERE sku = ?", (sku_del,))
+                        qtd_movs = c.fetchone()[0]
+
+                        if qtd_movs > 0:
+                            st.error(f"Não é possível excluir o produto (SKU: {sku_del}) pois ele possui {qtd_movs} movimentação(ões) registrada(s) no histórico. Para preservar a integridade dos dados, considere zerar o estoque dele em 'Editar Produto'.")
+                        else:
+                            c.execute("DELETE FROM produtos WHERE sku = ?", (sku_del,))
+                            conn.commit()
+                            st.success(f"Produto SKU '{sku_del}' excluído com sucesso!")
+                            st.rerun()
+                        conn.close()
+                    else:
+                        st.error("Marque a caixinha de confirmação acima antes de prosseguir.")
+            else:
+                st.info("Nenhum produto cadastrado para exclusão.")
+
+        # Sub-aba 4: Importação em Lote via CSV/Excel
+        with tab_p4:
             st.write("Envie uma planilha com os produtos para cadastrar múltiplos itens de uma só vez.")
             
             # Planilha modelo para download
@@ -702,109 +787,135 @@ if st.session_state["perfil"] == "Admin":
             ])
             csv_modelo = df_modelo.to_csv(index=False).encode('utf-8')
             st.download_button("📄 Baixar Planilha Modelo (CSV)", data=csv_modelo, file_name="modelo_importacao_produtos.csv", mime="text/csv")
-            
-            st.divider()
-            
-            uploaded_file = st.file_uploader("Selecione o arquivo da planilha (.csv ou .xlsx)", type=["csv", "xlsx"])
-            
-            if uploaded_file is not None:
+
+            arquivo_upload = st.file_uploader("Selecione o arquivo CSV ou Excel", type=["csv", "xlsx"])
+
+            if arquivo_upload is not None:
                 try:
-                    if uploaded_file.name.endswith('.csv'):
-                        df_imp = pd.read_csv(uploaded_file)
+                    if arquivo_upload.name.endswith(".csv"):
+                        df_imp = pd.read_csv(arquivo_upload)
                     else:
-                        df_imp = pd.read_excel(uploaded_file)
-                    
-                    st.write("**Prévia dos Dados a Importar:**")
-                    st.dataframe(df_imp, use_container_width=True)
-                    
-                    colunas_esperadas = {"SKU", "Nome", "Categoria", "Estoque_Minimo", "Preco_Unitario"}
-                    if colunas_esperadas.issubset(df_imp.columns):
-                        if st.button("🚀 Confirmar Importação de Produtos", use_container_width=True):
-                            conn = get_connection()
-                            c = conn.cursor()
-                            
-                            # Adicionar categorias da planilha que não existem no banco
-                            cats_planilha = df_imp['Categoria'].dropna().unique()
-                            for cat_p in cats_planilha:
-                                c.execute("INSERT OR IGNORE INTO categorias VALUES (?)", (str(cat_p),))
-                            
-                            sucessos = 0
-                            erros = 0
-                            
-                            for _, r in df_imp.iterrows():
-                                try:
-                                    c.execute("INSERT INTO produtos VALUES (?, ?, ?, 0, ?, ?)", (
-                                        str(r['SKU']), str(r['Nome']), str(r['Categoria']),
-                                        int(r['Estoque_Minimo']), float(r['Preco_Unitario'])
-                                    ))
-                                    sucessos += 1
-                                except sqlite3.IntegrityError:
-                                    erros += 1
-                            
-                            conn.commit()
-                            conn.close()
-                            
-                            if sucessos > 0:
-                                st.success(f"✅ {sucessos} produtos importados com sucesso!")
-                            if erros > 0:
-                                st.warning(f"⚠️ {erros} produtos não foram importados pois o SKU já existia no banco.")
-                            st.rerun()
-                    else:
-                        st.error(f"A planilha precisa conter as colunas: {', '.join(colunas_esperadas)}")
+                        df_imp = pd.read_excel(arquivo_upload)
+
+                    st.write("Pré-visualização dos dados:")
+                    st.dataframe(df_imp.head(), use_container_width=True)
+
+                    if st.button("Processar Importação", use_container_width=True):
+                        conn = get_connection()
+                        c = conn.cursor()
+                        sucesso = 0
+                        erros = 0
+
+                        for _, row in df_imp.iterrows():
+                            try:
+                                c.execute("""
+                                    INSERT INTO produtos (sku, nome, categoria, qtd_estoque, qtd_minima, preco_unitario)
+                                    VALUES (?, ?, ?, 0, ?, ?)
+                                """, (
+                                    str(row["SKU"]).strip(),
+                                    str(row["Nome"]).strip(),
+                                    str(row["Categoria"]).strip(),
+                                    int(row.get("Estoque_Minimo", 5)),
+                                    float(row.get("Preco_Unitario", 0.0))
+                                ))
+                                sucesso += 1
+                            except Exception:
+                                erros += 1
+
+                        conn.commit()
+                        conn.close()
+                        st.success(f"Importação concluída! {sucesso} produtos inseridos com sucesso.")
+                        if erros > 0:
+                            st.warning(f"{erros} produtos não puderam ser importados (SKU duplicado ou dados inválidos).")
+                        st.rerun()
+
                 except Exception as e:
                     st.error(f"Erro ao ler arquivo: {e}")
 
+    # ABA CATEGORIAS
     with aba_cat:
-        st.subheader("🏷️ Gerenciar Categorias")
-        col_c1, col_c2 = st.columns(2)
-        with col_c1:
-            with st.form("form_add_cat", clear_on_submit=True):
-                nova_cat = st.text_input("Nova Categoria").strip()
+        st.subheader("🏷️ Gerenciamento de Categorias")
+        
+        conn = get_connection()
+        df_cats = pd.read_sql_query("SELECT nome as 'Categoria' FROM categorias ORDER BY nome ASC", conn)
+        conn.close()
+
+        col_cat1, col_cat2 = st.columns([2, 2])
+        
+        with col_cat1:
+            st.dataframe(df_cats, use_container_width=True)
+
+        with col_cat2:
+            with st.form("form_nova_cat", clear_on_submit=True):
+                nova_cat_nome = st.text_input("Nova Categoria").strip()
                 if st.form_submit_button("Adicionar Categoria", use_container_width=True):
-                    if nova_cat:
+                    if nova_cat_nome:
                         conn = get_connection()
                         c = conn.cursor()
                         try:
-                            c.execute("INSERT INTO categorias VALUES (?)", (nova_cat,))
+                            c.execute("INSERT INTO categorias VALUES (?)", (nova_cat_nome,))
                             conn.commit()
-                            st.success(f"Categoria '{nova_cat}' adicionada!")
+                            st.success(f"Categoria '{nova_cat_nome}' cadastrada!")
                         except sqlite3.IntegrityError:
-                            st.error("Categoria já existe.")
+                            st.error("Esta categoria já existe.")
                         finally:
                             conn.close()
+                            st.rerun()
+                    else:
+                        st.error("Informe um nome para a categoria.")
 
-        with col_c2:
-            conn = get_connection()
-            df_cat = pd.read_sql_query("SELECT nome as 'Categoria' FROM categorias", conn)
-            conn.close()
-            st.dataframe(df_cat, use_container_width=True)
-
+    # ABA USUÁRIOS
     with aba_usr:
-        st.subheader("➕ Novo Usuário")
-        with st.form("form_cad_usr", clear_on_submit=True):
-            novo_usr = st.text_input("Usuário").strip()
-            nova_senha = st.text_input("Senha", type="password")
-            novo_perfil = st.selectbox("Perfil de Acesso", ["Operador", "Admin"])
-            pergunta = st.text_input("Pergunta de Segurança para Recuperação")
-            resposta = st.text_input("Resposta da Pergunta")
+        st.subheader("👥 Cadastro e Controle de Acessos")
+        
+        tab_u1, tab_u2 = st.tabs(["Novo Usuário", "Usuários Cadastrados / Status"])
 
-            if st.form_submit_button("Cadastrar Usuário", use_container_width=True):
-                if novo_usr and nova_senha:
-                    conn = get_connection()
-                    c = conn.cursor()
-                    try:
-                        c.execute("INSERT INTO usuarios VALUES (?, ?, ?, 'Ativo', ?, ?)", 
-                                  (novo_usr, hash_senha(nova_senha), novo_perfil, pergunta, hash_senha(resposta.lower())))
+        with tab_u1:
+            with st.form("form_cad_usr", clear_on_submit=True):
+                new_user = st.text_input("Usuário").strip()
+                new_pass = st.text_input("Senha", type="password")
+                new_perf = st.selectbox("Perfil de Acesso", ["Operador", "Admin"])
+                perg_sec = st.text_input("Pergunta de Segurança (p/ recuperação)", value="Qual o nome da sua primeira escola?")
+                resp_sec = st.text_input("Resposta da Pergunta de Segurança")
+
+                if st.form_submit_button("Criar Usuário", use_container_width=True):
+                    if new_user and new_pass and resp_sec:
+                        conn = get_connection()
+                        c = conn.cursor()
+                        try:
+                            c.execute("""
+                                INSERT INTO usuarios (username, senha, perfil, status, pergunta_secreta, resposta_secreta) 
+                                VALUES (?, ?, ?, 'Ativo', ?, ?)
+                            """, (new_user, hash_senha(new_pass), new_perf, perg_sec, hash_senha(resp_sec.strip().lower())))
+                            conn.commit()
+                            st.success(f"Usuário {new_user} criado com sucesso!")
+                        except sqlite3.IntegrityError:
+                            st.error("Nome de usuário já existente.")
+                        finally:
+                            conn.close()
+                            st.rerun()
+                    else:
+                        st.error("Preencha Usuário, Senha e Resposta da Pergunta Secreta.")
+
+        with tab_u2:
+            conn = get_connection()
+            df_usrs = pd.read_sql_query("SELECT username as 'Usuário', perfil as 'Perfil', status as 'Status' FROM usuarios", conn)
+            conn.close()
+
+            st.dataframe(df_usrs, use_container_width=True)
+
+            with st.form("form_status_usr"):
+                usr_sel = st.selectbox("Selecione o Usuário", df_usrs["Usuário"].tolist())
+                novo_st = st.radio("Alterar Status para", ["Ativo", "Bloqueado"], horizontal=True)
+
+                if st.form_submit_button("Atualizar Status", use_container_width=True):
+                    if usr_sel == "admin" and novo_st == "Bloqueado":
+                        st.error("Não é possível bloquear o usuário admin principal.")
+                    else:
+                        conn = get_connection()
+                        c = conn.cursor()
+                        c.execute("UPDATE usuarios SET status = ? WHERE username = ?", (novo_st, usr_sel))
                         conn.commit()
-                        st.success(f"Usuário '{novo_usr}' cadastrado com sucesso!")
-                    except sqlite3.IntegrityError:
-                        st.error("Nome de usuário já existente.")
-                    finally:
                         conn.close()
-
-        st.divider()
-        st.subheader("⚙️ Usuários Cadastrados")
-        conn = get_connection()
-        df_usr = pd.read_sql_query("SELECT username as 'Usuário', perfil as 'Perfil', status as 'Status' FROM usuarios", conn)
-        conn.close()
-        st.dataframe(df_usr, use_container_width=True)
+                        st.success(f"Status do usuário {usr_sel} atualizado para {novo_st}!")
+                        st.rerun()
