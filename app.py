@@ -412,7 +412,6 @@ with aba_rel:
     else:
         st.subheader(f"📈 Meus Relatórios de Lançamentos ({st.session_state['usuario']})")
     
-    # Filtros Superiores
     col_f1, col_f2, col_f3 = st.columns([2, 2, 2])
     
     with col_f1:
@@ -450,7 +449,6 @@ with aba_rel:
     else:
         tab_rel1 = st.container()
 
-    # Conteúdo de Movimentações
     with tab_rel1:
         col_t1, col_t2 = st.columns([2, 2])
         with col_t1:
@@ -503,7 +501,6 @@ with aba_rel:
     if st.session_state["perfil"] == "Admin":
         with tab_rel2:
             conn = get_connection()
-            # CONSULTA CORRIGIDA COM O JOIN EM PRODUTOS P:
             df_c = pd.read_sql_query("""
                 SELECT s.id as 'ID_Solicitacao', s.data_solicitacao as 'Data', s.movimentacao_id as 'ID_Mov_Original', 
                        m.sku as 'SKU', p.nome as 'Produto', m.tipo as 'Tipo_Original', m.quantidade as 'Qtd_Original',
@@ -532,7 +529,6 @@ with aba_ajuste:
         if st.button("🔄 Atualizar Tabela", key="btn_ref_ajuste", use_container_width=True):
             st.rerun()
 
-    # NOTIFICAÇÕES E SEÇÃO DO OPERADOR
     if st.session_state["perfil"] == "Operador":
         st.write("### 🔔 Painel de Acompanhamento das Suas Solicitações")
         
@@ -594,7 +590,6 @@ with aba_ajuste:
                 conn.close()
                 st.rerun()
 
-    # SEÇÃO DO ADMINISTRADOR
     if st.session_state["perfil"] == "Admin":
         st.subheader("🛡️ Painel de Autorizações Pendentes")
         
@@ -646,7 +641,6 @@ with aba_ajuste:
 
         st.divider()
 
-        # BOTÃO PARA LIMPAR SOLICITAÇÕES FINALIZADAS
         st.subheader("🧹 Limpeza e Manutenção da Tabela de Solicitações")
         col_limp1, col_limp2 = st.columns([3, 1])
         with col_limp1:
@@ -665,32 +659,100 @@ with aba_ajuste:
 # --- DEMAIS ABAS (ADMIN) ---
 if st.session_state["perfil"] == "Admin":
     with aba_prod:
-        st.subheader("Cadastrar Produto")
-        conn = get_connection()
-        cats = pd.read_sql_query("SELECT nome FROM categorias ORDER BY nome ASC", conn)["nome"].tolist()
-        conn.close()
+        st.subheader("📝 Gestão e Cadastro de Produtos")
+        
+        tab_p1, tab_p2 = st.tabs(["Cadastrar Manualmente", "📥 Importar em Lote (Planilha Excel/CSV)"])
+        
+        # Sub-aba 1: Cadastro Manual
+        with tab_p1:
+            conn = get_connection()
+            cats = pd.read_sql_query("SELECT nome FROM categorias ORDER BY nome ASC", conn)["nome"].tolist()
+            conn.close()
 
-        with st.form("form_cad_prod", clear_on_submit=True):
-            sku = st.text_input("SKU / Código do Item")
-            nome = st.text_input("Nome do Produto")
-            categoria = st.selectbox("Categoria", cats if cats else ["Padrão"])
-            qtd_min = st.number_input("Estoque Mínimo (Alerta)", value=5, step=1)
-            preco = st.number_input("Preço Unitário (R$)", value=0.0, step=0.5)
+            with st.form("form_cad_prod", clear_on_submit=True):
+                sku = st.text_input("SKU / Código do Item")
+                nome = st.text_input("Nome do Produto")
+                categoria = st.selectbox("Categoria", cats if cats else ["Padrão"])
+                qtd_min = st.number_input("Estoque Mínimo (Alerta)", value=5, step=1)
+                preco = st.number_input("Preço Unitário (R$)", value=0.0, step=0.5)
 
-            if st.form_submit_button("Salvar Produto", use_container_width=True):
-                if sku and nome:
-                    conn = get_connection()
-                    c = conn.cursor()
-                    try:
-                        c.execute("INSERT INTO produtos VALUES (?, ?, ?, 0, ?, ?)", (sku, nome, categoria, qtd_min, preco))
-                        conn.commit()
-                        st.success("Produto cadastrado com sucesso!")
-                    except sqlite3.IntegrityError:
-                        st.error("SKU já cadastrado. Utilize um código único.")
-                    finally:
-                        conn.close()
-                else:
-                    st.error("Preencha o SKU e o Nome do Produto.")
+                if st.form_submit_button("Salvar Produto", use_container_width=True):
+                    if sku and nome:
+                        conn = get_connection()
+                        c = conn.cursor()
+                        try:
+                            c.execute("INSERT INTO produtos VALUES (?, ?, ?, 0, ?, ?)", (sku, nome, categoria, qtd_min, preco))
+                            conn.commit()
+                            st.success("Produto cadastrado com sucesso!")
+                        except sqlite3.IntegrityError:
+                            st.error("SKU já cadastrado. Utilize um código único.")
+                        finally:
+                            conn.close()
+                    else:
+                        st.error("Preencha o SKU e o Nome do Produto.")
+
+        # Sub-aba 2: Importação em Lote via CSV/Excel
+        with tab_p2:
+            st.write("Envie uma planilha com os produtos para cadastrar múltiplos itens de uma só vez.")
+            
+            # Planilha modelo para download
+            df_modelo = pd.DataFrame([
+                {"SKU": "ESC-001", "Nome": "Papel A4 Chamex 75g", "Categoria": "Consumíveis", "Estoque_Minimo": 10, "Preco_Unitario": 28.50},
+                {"SKU": "ESC-002", "Nome": "Caneta Esferográfica Azul", "Categoria": "Consumíveis", "Estoque_Minimo": 5, "Preco_Unitario": 45.00}
+            ])
+            csv_modelo = df_modelo.to_csv(index=False).encode('utf-8')
+            st.download_button("📄 Baixar Planilha Modelo (CSV)", data=csv_modelo, file_name="modelo_importacao_produtos.csv", mime="text/csv")
+            
+            st.divider()
+            
+            uploaded_file = st.file_uploader("Selecione o arquivo da planilha (.csv ou .xlsx)", type=["csv", "xlsx"])
+            
+            if uploaded_file is not None:
+                try:
+                    if uploaded_file.name.endswith('.csv'):
+                        df_imp = pd.read_csv(uploaded_file)
+                    else:
+                        df_imp = pd.read_excel(uploaded_file)
+                    
+                    st.write("**Prévia dos Dados a Importar:**")
+                    st.dataframe(df_imp, use_container_width=True)
+                    
+                    colunas_esperadas = {"SKU", "Nome", "Categoria", "Estoque_Minimo", "Preco_Unitario"}
+                    if colunas_esperadas.issubset(df_imp.columns):
+                        if st.button("🚀 Confirmar Importação de Produtos", use_container_width=True):
+                            conn = get_connection()
+                            c = conn.cursor()
+                            
+                            # Adicionar categorias da planilha que não existem no banco
+                            cats_planilha = df_imp['Categoria'].dropna().unique()
+                            for cat_p in cats_planilha:
+                                c.execute("INSERT OR IGNORE INTO categorias VALUES (?)", (str(cat_p),))
+                            
+                            sucessos = 0
+                            erros = 0
+                            
+                            for _, r in df_imp.iterrows():
+                                try:
+                                    c.execute("INSERT INTO produtos VALUES (?, ?, ?, 0, ?, ?)", (
+                                        str(r['SKU']), str(r['Nome']), str(r['Categoria']),
+                                        int(r['Estoque_Minimo']), float(r['Preco_Unitario'])
+                                    ))
+                                    sucessos += 1
+                                except sqlite3.IntegrityError:
+                                    erros += 1
+                            
+                            conn.commit()
+                            conn.close()
+                            
+                            if sucessos > 0:
+                                st.success(f"✅ {sucessos} produtos importados com sucesso!")
+                            if erros > 0:
+                                st.warning(f"⚠️ {erros} produtos não foram importados pois o SKU já existia no banco.")
+                            st.rerun()
+                    else:
+                        st.error(f"A planilha precisa conter as colunas: {', '.join(colunas_esperadas)}")
+                except Exception as e:
+                    st.error(f"Erro ao ler arquivo: {e}")
 
     with aba_cat:
         st.subheader("🏷️ Gerenciar Categorias")
