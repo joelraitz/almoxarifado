@@ -14,7 +14,6 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 # Configuração responsiva para Celular/Desktop
 st.set_page_config(page_title="Almoxarifado Pro", page_icon="📦", layout="wide", initial_sidebar_state="collapsed")
 
-# Limpa o cache do Streamlit para garantir dados atualizados a cada execução
 st.cache_data.clear()
 
 # CSS para otimização mobile
@@ -464,7 +463,7 @@ if st.session_state["perfil"] == "Admin":
         st.subheader("📝 Gestão e Cadastro de Produtos")
         
         tab_p1, tab_p2, tab_p3, tab_p4, tab_p5 = st.tabs([
-            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️️ Zerar Estoques", "📥 Importar Planilha"
+            "Cadastrar", "✏️️ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha"
         ])
         
         with tab_p1:
@@ -519,7 +518,7 @@ if st.session_state["perfil"] == "Admin":
                 st.info("Nenhum produto cadastrado.")
 
         with tab_p5:
-            st.subheader("📥 Importação em Lote por Planilha")
+            st.subheader("📥 Importação em Lote por Planilha (Flexível)")
             
             df_mod = pd.DataFrame([
                 {"SKU": "ALM-001", "Nome do Produto": "Papel A4", "Categoria": "Consumíveis", "Estoque Mínimo": 10, "Preço Unitário": 25.0, "Quantidade Inicial": 150}
@@ -529,40 +528,52 @@ if st.session_state["perfil"] == "Admin":
             if "up_key" not in st.session_state:
                 st.session_state["up_key"] = 0
 
-            up_file = st.file_uploader("Enviar Planilha CSV", type=["csv"], key=f"up_{st.session_state['up_key']}")
+            up_file = st.file_uploader("Enviar Planilha CSV ou Excel", type=["csv", "xlsx", "txt"], key=f"up_{st.session_state['up_key']}")
 
             if up_file is not None:
-                df_imp = pd.read_csv(up_file)
-                st.dataframe(df_imp, use_container_width=True)
+                try:
+                    if up_file.name.endswith(".csv") or up_file.name.endswith(".txt"):
+                        df_imp = pd.read_csv(up_file)
+                    else:
+                        df_imp = pd.read_excel(up_file)
 
-                if st.button("Executar Importação e Atualizar Estoque", type="primary"):
-                    conn = get_connection()
-                    c = conn.cursor()
-                    count = 0
-                    for _, row in df_imp.iterrows():
-                        s = str(row["SKU"]).strip()
-                        n = str(row["Nome do Produto"]).strip()
-                        cat = str(row["Categoria"]).strip()
-                        qmin = int(row.get("Estoque Mínimo", 5))
-                        preco = float(row.get("Preço Unitário", 0.0))
-                        qtd = int(row.get("Quantidade Inicial", 0))
+                    # Normaliza os nomes das colunas para evitar conflitos (remove espaços e converte para minúsculas)
+                    df_imp.columns = [str(c).strip().lower() for c in df_imp.columns]
+                    st.dataframe(df_imp.head(10), use_container_width=True)
 
-                        c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (s,))
-                        exists = c.fetchone()
-                        if exists:
-                            c.execute("UPDATE produtos SET nome = ?, categoria = ?, qtd_estoque = qtd_estoque + ?, qtd_minima = ?, preco_unitario = ? WHERE sku = ?", (n, cat, qtd, qmin, preco, s))
-                        else:
-                            c.execute("INSERT INTO produtos VALUES (?, ?, ?, ?, ?, ?)", (s, n, cat, qtd, qmin, preco))
+                    if st.button("Executar Importação e Atualizar Estoque", type="primary"):
+                        conn = get_connection()
+                        c = conn.cursor()
+                        count = 0
                         
-                        if qtd > 0:
-                            c.execute("INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) VALUES (?, 'Entrada', ?, 'Importação em lote', ?, ?, 'Concluido')", (s, qtd, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
-                        count += 1
+                        for _, row in df_imp.iterrows():
+                            # Mapeia flexivelmente as colunas independentemente de maiúsculas/minúsculas
+                            s = str(row.get("sku", row.get("código", row.get("codigo", "")))).strip()
+                            n = str(row.get("nome do produto", row.get("nome", row.get("produto", "Produto")))).strip()
+                            cat = str(row.get("categoria", "Geral")).strip()
+                            qmin = int(row.get("estoque mínimo", row.get("estoque minimo", 5)))
+                            preco = float(row.get("preço unitário", row.get("preco unitario", row.get("preco", 0.0))))
+                            qtd = int(row.get("quantidade inicial", row.get("quantidade", row.get("qtd", 0))))
 
-                    conn.commit()
-                    conn.close()
-                    st.success(f"✅ Confirmação: Importação concluída! {count} itens processados e estoque atualizado no Dashboard.")
-                    st.session_state["up_key"] += 1
-                    st.rerun()
+                            if s and s != "nan":
+                                c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (s,))
+                                exists = c.fetchone()
+                                if exists:
+                                    c.execute("UPDATE produtos SET nome = ?, categoria = ?, qtd_estoque = qtd_estoque + ?, qtd_minima = ?, preco_unitario = ? WHERE sku = ?", (n, cat, qtd, qmin, preco, s))
+                                else:
+                                    c.execute("INSERT INTO produtos VALUES (?, ?, ?, ?, ?, ?)", (s, n, cat, qtd, qmin, preco))
+                                
+                                if qtd > 0:
+                                    c.execute("INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) VALUES (?, 'Entrada', ?, 'Importação em lote', ?, ?, 'Concluido')", (s, qtd, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
+                                count += 1
+
+                        conn.commit()
+                        conn.close()
+                        st.success(f"✅ Confirmação: Importação concluída! {count} itens processados e estoque atualizado no Dashboard.")
+                        st.session_state["up_key"] += 1
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao processar arquivo: {e}")
 
     with aba_cat:
         st.subheader("🏷️ Categorias")
