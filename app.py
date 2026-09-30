@@ -13,7 +13,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 # Configuração responsiva para Celular/Desktop
 st.set_page_config(page_title="Almoxarifado Pro", page_icon="📦", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS para otimização mobile
+# CSS para otimização mobile e feedback visual
 st.markdown("""
     
 """, unsafe_allow_html=True)
@@ -769,7 +769,7 @@ if st.session_state["perfil"] == "Admin":
             else:
                 st.info("Nenhum produto cadastrado para exclusão.")
 
-        # Sub-aba 4: Zerar Estoques (Individual ou Geral)
+        # Sub-aba 4: Zerar Estoques com Feedback imediato e Confirmação visual explícita
         with tab_p4:
             st.subheader("🗑️ Gerenciamento de Zeragem de Estoque")
             st.write("Aqui você pode zerar o estoque de um produto específico ou zerar o estoque de **todos** os produtos do sistema de uma vez.")
@@ -801,7 +801,8 @@ if st.session_state["perfil"] == "Admin":
                             """, (sku_a_zerar, qtd_anterior, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
                         conn.commit()
                         conn.close()
-                        st.success(f"🧹 Sucesso! O estoque do produto SKU {sku_a_zerar} foi totalmente zerado.")
+                        
+                        st.success(f"🧹 Sucesso! O estoque do produto SKU {sku_a_zerar} foi zerado para 0.")
                         st.balloons()
                         st.rerun()
                 else:
@@ -822,11 +823,12 @@ if st.session_state["perfil"] == "Admin":
                             c.execute("UPDATE produtos SET qtd_estoque = 0")
                             conn.commit()
                             conn.close()
+                            
                             st.success("🧹 Operação concluída com sucesso! Todo o estoque do sistema foi zerado.")
                             st.balloons()
                             st.rerun()
                         else:
-                            st.error("⚠️ Marque a caixinha de confirmação acima para prosseguir com a zeragem total.")
+                            st.error("⚠️️ Marque a caixinha de confirmação acima para prosseguir com a zeragem total.")
             else:
                 st.info("Nenhum produto cadastrado no sistema.")
 
@@ -899,7 +901,7 @@ if st.session_state["perfil"] == "Admin":
                         conn.commit()
                         conn.close()
                         
-                        st.success(f"🎉 Importação concluída! {sucesso} produtos processados e importados com sucesso.")
+                        st.success(f"🎉 Importação concluída com sucesso! {sucesso} produtos processados e estoque atualizado.")
                         if erros > 0:
                             st.warning(f"{erros} produtos apresentaram falha na importação.")
                         
@@ -953,7 +955,7 @@ if st.session_state["perfil"] == "Admin":
             with st.form("form_cad_usr", clear_on_submit=True):
                 new_user = st.text_input("Usuário").strip()
                 new_pass = st.text_input("Senha", type="password")
-                new_perf = st.selectbox("Perfil de Acesso", ["Operador", "Admin"])
+                new_perf = st.selectbox("Perfil de Acesso", ["Operator", "Admin"])
                 perg_sec = st.text_input("Pergunta de Segurança (p/ recuperação)", value="Qual o nome da sua primeira escola?")
                 resp_sec = st.text_input("Resposta da Pergunta de Segurança")
 
