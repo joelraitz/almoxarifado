@@ -314,7 +314,7 @@ st.title("📦 Almoxarifado Inteligente")
 # Configuração de Notificações nos Títulos das Guia
 if st.session_state["perfil"] == "Admin":
     num_pendentes = contar_solicitacoes_pendentes_admin()
-    label_correcoes = f"🛠️ Correções / Estornos (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️ Correções / Estornos"
+    label_correcoes = f"🛠️ Correções / Estornos (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️️ Correções / Estornos"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Usuários"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 else:
@@ -796,7 +796,8 @@ if st.session_state["perfil"] == "Admin":
                         """, (sku_a_zerar, sku_a_zerar, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
                         conn.commit()
                         conn.close()
-                        st.success(f"Estoque do produto SKU {sku_a_zerar} zerado com sucesso!")
+                        st.success(f"🧹 Sucesso! O estoque do produto SKU {sku_a_zerar} foi totalmente zerado.")
+                        st.balloons()
                         st.rerun()
                 else:
                     st.warning("⚠️ **Atenção:** Esta ação colocará a quantidade em estoque de **todos** os produtos cadastrados para 0 (zero).")
@@ -809,18 +810,19 @@ if st.session_state["perfil"] == "Admin":
                             c.execute("UPDATE produtos SET qtd_estoque = 0")
                             conn.commit()
                             conn.close()
-                            st.success("O estoque de todos os produtos foi zerado com sucesso!")
+                            st.success("🧹 Operação concluída com sucesso! Todo o estoque do sistema foi zerado.")
+                            st.balloons()
                             st.rerun()
                         else:
                             st.error("Marque a caixinha de confirmação acima para prosseguir com a zeragem total.")
             else:
                 st.info("Nenhum produto cadastrado no sistema.")
 
-        # Sub-aba 5: Importação em Lote via CSV/Excel com limpeza de arquivo após processamento
+        # Sub-aba 5: Importação em Lote via CSV/Excel com limpeza e registro de entrada
         with tab_p5:
             st.write("Envie uma planilha com os produtos para cadastrar múltiplos itens de uma só vez.")
             
-            # Planilha modelo atualizada baseada exatamente no anexo
+            # Planilha modelo atualizada
             df_modelo = pd.DataFrame([
                 {"SKU": "ALM-001", "Nome do Produto": "Papel Sulfite A4 75g", "Categoria": "Consumíveis", "Estoque Mínimo": 10, "Preço Unitário": 25.50, "Quantidade Inicial": 200},
                 {"SKU": "ALM-002", "Nome do Produto": "Caneta Esferográfica Azul", "Categoria": "Escritório", "Estoque Mínimo": 20, "Preço Unitário": 1.56, "Quantidade Inicial": 200}
@@ -828,7 +830,6 @@ if st.session_state["perfil"] == "Admin":
             csv_modelo = df_modelo.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
             st.download_button("📥 Baixar Planilha Modelo (CSV)", data=csv_modelo, file_name="modelo_importacao_produtos.csv", mime="text/csv")
 
-            # Gerenciamento de chave do file_uploader para permitir limpar o arquivo carregado
             if "file_uploader_key" not in st.session_state:
                 st.session_state["file_uploader_key"] = 0
 
@@ -869,6 +870,13 @@ if st.session_state["perfil"] == "Admin":
                                         qtd_minima = excluded.qtd_minima,
                                         preco_unitario = excluded.preco_unitario
                                 """, (sku_val, nome_val, cat_val, qtd_ini, min_val, preco_val))
+                                
+                                if qtd_ini > 0:
+                                    c.execute("""
+                                        INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
+                                        VALUES (?, 'Entrada', ?, 'Importação em lote via planilha', ?, ?, 'Concluido')
+                                    """, (sku_val, qtd_ini, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
+                                
                                 sucesso += 1
                             except Exception as e:
                                 erros += 1
@@ -876,7 +884,6 @@ if st.session_state["perfil"] == "Admin":
                         conn.commit()
                         conn.close()
                         
-                        # Mensagem de sucesso e incremento da chave para limpar o file_uploader e a pré-visualização
                         st.success(f"🎉 Importação concluída! {sucesso} produtos processados e importados com sucesso.")
                         if erros > 0:
                             st.warning(f"{erros} produtos apresentaram falha na importação.")
