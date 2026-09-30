@@ -39,8 +39,6 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS movimentacoes (id INTEGER PRIMARY KEY AUTOINCREMENT, sku TEXT, tipo TEXT, quantidade INTEGER, descricao TEXT, data TEXT, usuario TEXT, status TEXT DEFAULT 'Concluido')")
     c.execute("CREATE TABLE IF NOT EXISTS solicitacoes_ajuste (id INTEGER PRIMARY KEY AUTOINCREMENT, movimentacao_id INTEGER, solicitante TEXT, destinatario TEXT, motivo TEXT, status TEXT DEFAULT 'Pendente', data_solicitacao TEXT, resposta_admin TEXT, avaliador TEXT, lido_gestor INTEGER DEFAULT 0, lido_operador INTEGER DEFAULT 0)")
     c.execute("CREATE TABLE IF NOT EXISTS ordens_servico (id INTEGER PRIMARY KEY AUTOINCREMENT, movimentacao_id INTEGER, data_abertura TEXT, data_limite TEXT, destino TEXT, usuario_abertura TEXT, usuario_consumidor TEXT, observacoes TEXT, status TEXT DEFAULT 'Aberta')")
-    
-    # Tabela para fotos georreferenciadas com suporte offline/fila de sincronização
     c.execute("CREATE TABLE IF NOT EXISTS fotos_os (id INTEGER PRIMARY KEY AUTOINCREMENT, os_id INTEGER, imagem BLOB, latitude TEXT, longitude TEXT, data_captura TEXT, status_sincronizacao TEXT DEFAULT 'Pendente')")
 
     for col_sql in [
@@ -464,5 +462,4 @@ with aba_mov:
         st.subheader("📸 Registo Fotográfico Georreferenciado da OS (Offline-First)")
         st.info("Tire uma foto do local/aplicação. As coordenadas GPS serão obtidas. Se estiver sem conexão, a foto ficará guardada na fila local até sincronizar.")
 
-        # Componente para captura de geolocalização via HTML/JS nativo no Streamlit
         loc_html = """
