@@ -294,8 +294,8 @@ perfil_atual = st.session_state["perfil"]
 
 if perfil_atual == "Admin":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
-    label_correcoes = "🛠️ Correções / Estornos (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Correções / Estornos"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️️ Categorias", "👥 Gestão de Utilizadores"])
+    label_correcoes = "🛠️️ Correções / Estornos (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Correções / Estornos"
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 elif perfil_atual == "Supervisor":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
@@ -350,7 +350,9 @@ with aba_dash:
         fig_status.update_layout(margin=dict(t=20, b=20, l=20, r=20), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_status, use_container_width=True)
 
-        st.dataframe(df_produtos[['sku', 'nome', 'categoria', 'qtd_estoque', 'qtd_minima', 'status']], use_container_width=True)
+        # A tabela detalhada abaixo fica restrita a Administradores e Supervisores
+        if perfil_atual in ["Admin", "Supervisor"]:
+            st.dataframe(df_produtos[['sku', 'nome', 'categoria', 'qtd_estoque', 'qtd_minima', 'status']], use_container_width=True)
     else:
         st.info("Nenhum produto cadastrado no sistema.")
 
@@ -604,7 +606,7 @@ if perfil_atual == "Admin":
     with aba_prod:
         st.subheader("📝 Gestão e Cadastro de Produtos")
         tab_p1, tab_p2, tab_p3, tab_p4, tab_p5 = st.tabs([
-            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha"
+            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️️ Zerar Estoques", "📥 Importar Planilha"
         ])
         
         with tab_p1:
@@ -668,7 +670,7 @@ if perfil_atual == "Admin":
 
             else:
                 conn.close()
-                st.warning("⚠️️ Atenção: Esta ação vai zerar o estoque de **todos** os produtos cadastrados no sistema.")
+                st.warning("⚠️ Atenção: Esta ação vai zerar o estoque de **todos** os produtos cadastrados no sistema.")
                 if st.button("Zeragem Geral em Lote (Todos os Produtos)", type="primary"):
                     conn = get_connection()
                     c = conn.cursor()
