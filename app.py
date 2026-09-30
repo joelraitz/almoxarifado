@@ -220,14 +220,14 @@ def tela_login():
                 if res:
                     perfil, status = res
                     if status == "Bloqueado":
-                        st.error("Usuário bloqueado. Contate o Administrador.")
+                        st.error("Utilizador bloqueado. Contate o Administrador.")
                     else:
                         st.session_state["logado"] = True
                         st.session_state["usuario"] = usuario
                         st.session_state["perfil"] = perfil
                         st.rerun()
                 else:
-                    st.error("Usuário ou senha incorretos. (Admin padrão: admin / admin123)")
+                    st.error("Utilizador ou senha incorretos. (Admin padrão: admin / admin123)")
 
         if st.button("Esqueci minha senha"):
             st.session_state["modo_login"] = "recuperar"
@@ -235,7 +235,7 @@ def tela_login():
 
     elif st.session_state["modo_login"] == "recuperar":
         st.subheader("🔑 Recuperação de Senha")
-        usr_rec = st.text_input("Informe seu nome de Usuário").strip()
+        usr_rec = st.text_input("Informe seu nome de Utilizador").strip()
 
         if usr_rec:
             conn = get_connection()
@@ -263,9 +263,9 @@ def tela_login():
                             st.error("Resposta secreta incorreta.")
                         conn.close()
             elif res:
-                st.warning("Usuário não possui pergunta de segurança cadastrada.")
+                st.warning("Utilizador não possui pergunta de segurança cadastrada.")
             else:
-                st.error("Usuário não encontrado.")
+                st.error("Utilizador não encontrado.")
 
         if st.button("Voltar ao Login"):
             st.session_state["modo_login"] = "login"
@@ -294,7 +294,7 @@ st.title("📦 Almoxarifado Inteligente")
 if st.session_state["perfil"] == "Admin":
     num_pendentes = contar_solicitacoes_pendentes_admin()
     label_correcoes = f"🛠️ Correções / Estornos (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️ Correções / Estornos"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Usuários"])
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 else:
     num_solic_operador = contar_solicitacoes_operador(st.session_state["usuario"])
@@ -520,7 +520,6 @@ if st.session_state["perfil"] == "Admin":
         with tab_p5:
             st.subheader("📥 Importação em Lote por Planilha (Padrão exato: sku, nome, categoria, minimo, preco, quantidade)")
             
-            # Modelo gerado exatamente com as colunas da sua planilha (sku, nome, categoria, minimo, preco, quantidade)
             df_mod = pd.DataFrame([
                 {"sku": "ALM-001", "nome": "Papel Sulfite A4 75g", "categoria": "Consumíveis", "minimo": 10, "preco": 25.5, "quantidade": 200},
                 {"sku": "ALM-002", "nome": "Caneta Esferográfica Azul", "categoria": "Escritório", "minimo": 20, "preco": 1.56, "quantidade": 200}
@@ -545,7 +544,6 @@ if st.session_state["perfil"] == "Admin":
                     else:
                         df_imp = pd.read_excel(up_file)
 
-                    # Normaliza os nomes das colunas para minúsculas e remove caracteres especiais invisíveis (como BOM do Excel)
                     df_imp.columns = [str(c).strip().replace('\ufeff', '').lower() for c in df_imp.columns]
                     st.dataframe(df_imp.head(10), use_container_width=True)
 
@@ -555,7 +553,6 @@ if st.session_state["perfil"] == "Admin":
                         count = 0
                         
                         for _, row in df_imp.iterrows():
-                            # Mapeamento exato das colunas da planilha do usuário
                             s = str(row.get("sku", row.get("código", row.get("codigo", "")))).strip()
                             n = str(row.get("nome", row.get("nome do produto", row.get("produto", "Produto")))).strip()
                             cat = str(row.get("categoria", "Geral")).strip()
@@ -590,7 +587,81 @@ if st.session_state["perfil"] == "Admin":
         conn.close()
 
     with aba_usr:
-        st.subheader("👥 Usuários")
-        conn = get_connection()
-        st.dataframe(pd.read_sql_query("SELECT username, perfil, status FROM usuarios", conn), use_container_width=True)
-        conn.close()
+        st.subheader("👥 Gestão de Utilizadores (Incluir, Bloquear e Remover)")
+        
+        tab_u1, tab_u2 = st.tabs(["➕ Incluir Novo Utilizador", "⚙️ Gerir / Bloquear / Remover Utilizadores"])
+        
+        with tab_u1:
+            with st.form("form_novo_user", clear_on_submit=True):
+                novo_user = st.text_input("Nome de Utilizador (Login)").strip()
+                nova_senha_user = st.text_input("Senha", type="password")
+                perfil_user = st.selectbox("Perfil de Acesso", ["Operador", "Admin"])
+                pergunta_sec = st.text_input("Pergunta Secreta (ex: Qual a cidade natal?)", value="Qual a cidade natal?")
+                resposta_sec = st.text_input("Resposta Secreta", type="password")
+                
+                if st.form_submit_button("Cadastrar Utilizador", type="primary"):
+                    if novo_user and nova_senha_user and resposta_sec:
+                        try:
+                            conn = get_connection()
+                            c = conn.cursor()
+                            c.execute("""
+                                INSERT INTO usuarios (username, senha, perfil, status, pergunta_secreta, resposta_secreta)
+                                VALUES (?, ?, ?, 'Ativo', ?, ?)
+                            """, (novo_user, hash_senha(nova_senha_user), perfil_user, pergunta_sec, hash_senha(resposta_sec)))
+                            conn.commit()
+                            conn.close()
+                            st.success(f"✅ Utilizador '{novo_user}' ({perfil_user}) cadastrado com sucesso!")
+                        except sqlite3.IntegrityError:
+                            st.error("Erro: Este nome de utilizador já existe no sistema.")
+                    else:
+                        st.warning("Preencha todos os campos obrigatórios.")
+
+        with tab_u2:
+            conn = get_connection()
+            df_usuarios = pd.read_sql_query("SELECT username, perfil, status FROM usuarios", conn)
+            conn.close()
+
+            if not df_usuarios.empty:
+                st.dataframe(df_usuarios, use_container_width=True)
+                
+                st.divider()
+                st.subheader("⚙️ Ações sobre Utilizadores")
+                
+                # Lista de utilizadores exceto o admin principal se desejado, ou todos com restrição de segurança
+                lista_usuarios_sistema = df_usuarios["username"].tolist()
+                
+                user_selecionado = st.selectbox("Selecione o Utilizador", lista_usuarios_sistema)
+                
+                col_acao1, col_acao2 = st.columns(2)
+                
+                with col_acao1:
+                    novo_status_acao = st.radio("Alterar Status / Bloqueio", ["Ativo", "Bloqueado"], horizontal=True)
+                    if st.button("Atualizar Status do Utilizador", use_container_width=True):
+                        if user_selecionado == "admin" and novo_status_acao == "Bloqueado":
+                            st.error("Não é permitido bloquear o administrador principal ('admin').")
+                        else:
+                            conn = get_connection()
+                            c = conn.cursor()
+                            c.execute("UPDATE usuarios SET status = ? WHERE username = ?", (novo_status_acao, user_selecionado))
+                            conn.commit()
+                            conn.close()
+                            st.success(f"Status do utilizador '{user_selecionado}' alterado para: {novo_status_acao}")
+                            st.rerun()
+
+                with col_acao2:
+                    st.write("🗑️ **Remover Utilizador**")
+                    if st.button("Excluir Utilizador Definitivamente", type="primary", use_container_width=True):
+                        if user_selecionado == "admin":
+                            st.error("Não é permitido excluir o utilizador administrador principal ('admin').")
+                        elif user_selecionado == st.session_state["usuario"]:
+                            st.error("Não pode excluir a sua própria conta enquanto está conectado.")
+                        else:
+                            conn = get_connection()
+                            c = conn.cursor()
+                            c.execute("DELETE FROM usuarios WHERE username = ?", (user_selecionado,))
+                            conn.commit()
+                            conn.close()
+                            st.success(f"Utilizador '{user_selecionado}' removido com sucesso!")
+                            st.rerun()
+            else:
+                st.info("Nenhum utilizador registado.")
