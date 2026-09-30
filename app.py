@@ -375,19 +375,19 @@ perfil_atual = st.session_state["perfil"]
 
 if perfil_atual == "Admin":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
-    label_correcoes = "🛠️️ Correções / Estornos (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Correções / Estornos"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
-    aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
+    label_correcoes = "🛠️ Correções / Estornos (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Correções / Estornos"
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📋 Histórico de OS", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
+    aba_dash, aba_mov, aba_historico_os, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 elif perfil_atual == "Supervisor":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
     label_correcoes = "🛠️ Aprovar Correções (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Aprovar Correções"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Gerais", label_correcoes, "🏷️ Categorias"])
-    aba_dash, aba_mov, aba_rel, aba_ajuste, aba_cat = abas
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📋 Histórico de OS", "📈 Relatórios Gerais", label_correcoes, "🏷️ Categorias"])
+    aba_dash, aba_mov, aba_historico_os, aba_rel, aba_ajuste, aba_cat = abas
 else:
     num_notif = contar_notificacoes_operador(st.session_state["usuario"])
     label_solic_op = "🛠️ Solicitar Correção (🔔 " + str(num_notif) + ")" if num_notif > 0 else "🛠️ Solicitar Correção"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Meus Relatórios", label_solic_op])
-    aba_dash, aba_mov, aba_rel, aba_ajuste = abas
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📋 Histórico de OS", "📈 Meus Relatórios", label_solic_op])
+    aba_dash, aba_mov, aba_historico_os, aba_rel, aba_ajuste = abas
 
 with aba_dash:
     col_dash_title, col_dash_btn = st.columns([4, 1])
@@ -562,6 +562,70 @@ with aba_mov:
                             st.rerun()
         else:
             st.warning("Nenhum produto cadastrado.")
+
+with aba_historico_os:
+    st.subheader("📋 Histórico Geral e Acompanhamento de Ordens de Serviço (OS)")
+    
+    conn = get_connection()
+    query_os = """
+        SELECT 
+            os.id as 'ID OS', 
+            os.data_abertura as 'Abertura', 
+            os.data_limite as 'Prazo Limite', 
+            os.usuario_abertura as 'Emissor', 
+            os.usuario_consumidor as 'Consumidor', 
+            os.destino as 'Destino', 
+            p.nome as 'Produto', 
+            m.tipo as 'Operação', 
+            m.quantidade as 'Qtd', 
+            os.status as 'Status OS'
+        FROM ordens_servico os
+        JOIN movimentacoes m ON os.movimentacao_id = m.id
+        JOIN produtos p ON m.sku = p.sku
+        ORDER BY os.id DESC
+    """
+    df_historico_os = pd.read_sql_query(query_os, conn)
+    conn.close()
+
+    if not df_historico_os.empty:
+        st.dataframe(df_historico_os, use_container_width=True)
+        
+        st.divider()
+        st.subheader("🔍 Consultar Fotografias e Comprovações Georreferenciadas (Fila Local / Offline)")
+        
+        conn = get_connection()
+        df_fotos = pd.read_sql_query("SELECT id, os_id, latitude, longitude, data_captura, status_sincronizacao FROM fotos_os ORDER BY id DESC", conn)
+        conn.close()
+
+        if not df_fotos.empty:
+            st.dataframe(df_fotos, use_container_width=True)
+            
+            foto_sel_id = st.selectbox("Selecione o ID do Registo Fotográfico para Detalhes / Validar", df_fotos["id"].tolist())
+            if foto_sel_id:
+                conn = get_connection()
+                c = conn.cursor()
+                c.execute("SELECT imagem, os_id, latitude, longitude, data_captura, status_sincronizacao FROM fotos_os WHERE id = ?", (foto_sel_id,))
+                f_res = c.fetchone()
+                conn.close()
+
+                if f_res:
+                    img_blob, os_id_f, lat_f, lon_f, dt_f, st_f = f_res
+                    st.write(f"**Vinculado à OS Nº:** {os_id_f:04d} | **Data:** {dt_f} | **Coordenadas GPS:** Lat: {lat_f}, Lon: {lon_f} | **Estado:** {st_f}")
+                    st.image(img_blob, caption=f"Foto da OS #{os_id_f:04d}", width=400)
+
+                    if st_f == "Pendente" and perfil_atual in ["Admin", "Supervisor"]:
+                        if st.button("✅ Validar e Marcar como Sincronizado"):
+                            conn = get_connection()
+                            c = conn.cursor()
+                            c.execute("UPDATE fotos_os SET status_sincronizacao = 'Sincronizado/Validado' WHERE id = ?", (foto_sel_id,))
+                            conn.commit()
+                            conn.close()
+                            st.success("✅ Registo validado e sincronizado com sucesso!")
+                            st.rerun()
+        else:
+            st.info("Nenhuma fotografia ou registo georreferenciado offline guardado até o momento.")
+    else:
+        st.info("Nenhuma Ordem de Serviço registada no sistema.")
 
 with aba_rel:
     if perfil_atual in ["Admin", "Supervisor"]:
