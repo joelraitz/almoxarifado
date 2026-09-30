@@ -295,7 +295,7 @@ perfil_atual = st.session_state["perfil"]
 if perfil_atual == "Admin":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
     label_correcoes = "🛠️ Correções / Estornos (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Correções / Estornos"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️️ Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 elif perfil_atual == "Supervisor":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
@@ -329,20 +329,22 @@ with aba_dash:
         col1.metric("Total de SKUs", len(df_produtos))
         col2.metric("Itens em Estoque Crítico", int((df_produtos["status"] == "⚠️ CRÍTICO").sum()))
 
-        pdf_bytes = gerar_pdf_relatorio(df_produtos, "Estoque Geral Atual")
-        
-        col_dl1, col_dl2 = st.columns([3, 1])
-        with col_dl1:
-            btn_pdf = st.download_button(
-                "📄 Baixar Relatório Geral em PDF", 
-                data=pdf_bytes, 
-                file_name="estoque_atual.pdf", 
-                mime="application/pdf", 
-                use_container_width=True
-            )
-        
-        if btn_pdf:
-            st.success("✅ Relatório gerado com sucesso!")
+        # Apenas Admin e Supervisor podem baixar o relatório geral na aba Dashboard
+        if perfil_atual in ["Admin", "Supervisor"]:
+            pdf_bytes = gerar_pdf_relatorio(df_produtos, "Estoque Geral Atual")
+            
+            col_dl1, col_dl2 = st.columns([3, 1])
+            with col_dl1:
+                btn_pdf = st.download_button(
+                    "📄 Baixar Relatório Geral em PDF", 
+                    data=pdf_bytes, 
+                    file_name="estoque_atual.pdf", 
+                    mime="application/pdf", 
+                    use_container_width=True
+                )
+            
+            if btn_pdf:
+                st.success("✅ Relatório gerado com sucesso!")
 
         fig_status = px.pie(df_produtos, names="status", color="status", color_discrete_map={"⚠️ CRÍTICO": "#FF4B4B", "✅ NORMAL": "#10B981"}, hole=0.5)
         fig_status.update_layout(margin=dict(t=20, b=20, l=20, r=20), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
@@ -666,7 +668,7 @@ if perfil_atual == "Admin":
 
             else:
                 conn.close()
-                st.warning("⚠️ Atenção: Esta ação vai zerar o estoque de **todos** os produtos cadastrados no sistema.")
+                st.warning("⚠️️ Atenção: Esta ação vai zerar o estoque de **todos** os produtos cadastrados no sistema.")
                 if st.button("Zeragem Geral em Lote (Todos os Produtos)", type="primary"):
                     conn = get_connection()
                     c = conn.cursor()
@@ -686,7 +688,6 @@ if perfil_atual == "Admin":
             
             st.divider()
             
-            # Utiliza a chave dinâmica baseada no contador para limpar o file_uploader após o upload
             uploaded_file = st.file_uploader(
                 "Carregar arquivo de inventário (CSV ou Excel)", 
                 type=["csv", "xlsx", "xls"], 
@@ -794,10 +795,8 @@ if perfil_atual == "Admin":
                         conn.commit()
                         conn.close()
                         
-                        # Mensagem de sucesso solicitada explicitamente
                         st.success(f"✅ Materiais adicionados com sucesso! ({sucessos} produtos processados e somados ao stock).")
                         
-                        # Incrementa o contador para limpar o anexo do uploader e recarrega a página
                         st.session_state["upload_counter"] += 1
                         st.rerun()
                 except Exception as e:
