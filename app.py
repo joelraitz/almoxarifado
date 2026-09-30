@@ -206,7 +206,7 @@ def tela_login():
     
     if st.session_state["modo_login"] == "login":
         with st.form("form_login"):
-            usuario = st.text_input("Usuário").strip()
+            usuario = st.text_input("Utilizador").strip()
             senha = st.text_input("Senha", type="password")
             btn_login = st.form_submit_button("Entrar", use_container_width=True)
 
@@ -325,7 +325,21 @@ with aba_dash:
         col2.metric("Itens em Estoque Crítico", (df_produtos["status"] == "⚠️ CRÍTICO").sum())
 
         pdf_bytes = gerar_pdf_relatorio(df_produtos)
-        st.download_button("📄 Exportar Estoque em PDF", data=pdf_bytes, file_name="estoque_atual.pdf", mime="application/pdf", use_container_width=True)
+        
+        # Botão com Feedback Visual Imediato
+        col_dl1, col_dl2 = st.columns([3, 1])
+        with col_dl1:
+            btn_pdf = st.download_button(
+                "📄 Emitir e Baixar Relatório em PDF", 
+                data=pdf_bytes, 
+                file_name="estoque_atual.pdf", 
+                mime="application/pdf", 
+                use_container_width=True
+            )
+        
+        if btn_pdf:
+            st.success("✅ Relatório em PDF gerado com sucesso! Verifique a sua pasta de transferências.")
+            st.balloons()
 
         fig_status = px.pie(df_produtos, names="status", color="status", color_discrete_map={"⚠️ CRÍTICO": "#FF4B4B", "✅ NORMAL": "#00CC96"}, hole=0.4)
         st.plotly_chart(fig_status, use_container_width=True)
@@ -627,9 +641,7 @@ if st.session_state["perfil"] == "Admin":
                 st.divider()
                 st.subheader("⚙️ Ações sobre Utilizadores")
                 
-                # Lista de utilizadores exceto o admin principal se desejado, ou todos com restrição de segurança
                 lista_usuarios_sistema = df_usuarios["username"].tolist()
-                
                 user_selecionado = st.selectbox("Selecione o Utilizador", lista_usuarios_sistema)
                 
                 col_acao1, col_acao2 = st.columns(2)
@@ -649,7 +661,7 @@ if st.session_state["perfil"] == "Admin":
                             st.rerun()
 
                 with col_acao2:
-                    st.write("🗑️ **Remover Utilizador**")
+                    st.write("🗑️️ **Remover Utilizador**")
                     if st.button("Excluir Utilizador Definitivamente", type="primary", use_container_width=True):
                         if user_selecionado == "admin":
                             st.error("Não é permitido excluir o utilizador administrador principal ('admin').")
