@@ -157,14 +157,14 @@ def marcar_como_lido_operador(usuario):
     conn.commit()
     conn.close()
 
-# --- GERADORES DE RELATÓRIO PDF FORMALIZADOS ---
+# --- GERADORES DE RELATÓRIO PDF DINÂMICOS E ESPECÍFICOS ---
 def gerar_pdf_relatorio(df_produtos, titulo_relatorio):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
     story = []
     styles = getSampleStyleSheet()
 
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#0f172a'))
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#0f172a'))
     story.append(Paragraph(f"Relatório Formal - {titulo_relatorio}", title_style))
     story.append(Paragraph(f"Emitido em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
     story.append(Spacer(1, 10))
@@ -200,8 +200,8 @@ def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
     story = []
     styles = getSampleStyleSheet()
 
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#0f172a'))
-    story.append(Paragraph(f"Relatório Formal de {tipo_relatorio}", title_style))
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=14, textColor=colors.HexColor('#0f172a'))
+    story.append(Paragraph(f"Relatório: {tipo_relatorio}", title_style))
     story.append(Paragraph(f"Período: {titulo_periodo} | Emitido em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
     story.append(Spacer(1, 10))
 
@@ -218,7 +218,12 @@ def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
             linha.append(val)
         dados.append(linha)
 
-    tabela = Table(dados)
+    # Definir largura proporcional baseada na quantidade de colunas para caber perfeitamente na página A4 (largura útil ~580)
+    num_cols = len(colunas_df)
+    largura_util = 580
+    col_widths = [largura_util / num_cols] * num_cols
+
+    tabela = Table(dados, colWidths=col_widths)
     tabela.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0f172a')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -338,7 +343,7 @@ perfil_atual = st.session_state["perfil"]
 if perfil_atual == "Admin":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
     label_correcoes = f"🛠️ Correções / Estornos (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️ Correções / Estornos"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷 Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 elif perfil_atual == "Supervisor":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
@@ -560,13 +565,12 @@ with aba_rel:
     else:
         st.info("Nenhum registo encontrado para o período e modelo selecionados.")
 
-# --- ABA CORREÇÃO / APROVAÇÃO E NOTIFICAÇÕES (COM ZERAGEM DE BALÃO AO VISUALIZAR) ---
+# --- ABA CORREÇÃO / APROVAÇÃO E NOTIFICAÇÕES ---
 with aba_ajuste:
     if perfil_atual in ["Admin", "Supervisor"]:
-        # Ao abrir esta aba, o gestor visualizou, logo marcamos como lido para zerar o balão
         marcar_como_lido_gestor(perfil_atual)
 
-        st.subheader("⚠️ Gestão e Aprovação de Solicitações de Correção")
+        st.subheader("⚠️️ Gestão e Aprovação de Solicitações de Correção")
         
         conn = get_connection()
         if perfil_atual == "Admin":
@@ -598,7 +602,6 @@ with aba_ajuste:
                             f = -1 if tipo_m == "Entrada" else 1
                             c.execute("UPDATE produtos SET qtd_estoque = qtd_estoque + ? WHERE sku = ?", (qtd_m * f, sku_m))
                         
-                        # Ao responder, resetamos lido_operador para 0 para notificar o operador no balão dele
                         c.execute("UPDATE solicitacoes_ajuste SET status = ?, resposta_admin = ?, avaliador = ?, lido_operador = 0 WHERE id = ?", (novo_status_sol, resp_admin, st.session_state["usuario"], sid))
                         conn.commit()
                         st.success(f"✅ Solicitação avaliada e processada com sucesso por {st.session_state['usuario']}!")
@@ -608,7 +611,6 @@ with aba_ajuste:
         else:
             st.info("Não existem solicitações pendentes no momento.")
     else:
-        # Ao abrir esta aba, o operador visualizou as respostas, logo marcamos como lido para zerar o balão
         marcar_como_lido_operador(st.session_state["usuario"])
 
         st.subheader("🛠️ Minhas Solicitações e Notificações de Correção")
@@ -650,7 +652,6 @@ with aba_ajuste:
                     if motivo_solic.strip():
                         conn = get_connection()
                         c = conn.cursor()
-                        # Ao inserir nova solicitação, lido_gestor fica 0 para acender o balão do gestor destinatário
                         c.execute("""
                             INSERT INTO solicitacoes_ajuste (movimentacao_id, solicitante, destinatario, motivo, status, data_solicitacao, resposta_admin, avaliador, lido_gestor, lido_operador)
                             VALUES (?, ?, ?, ?, 'Pendente', ?, 'Aguardando avaliação', NULL, 0, 1)
@@ -677,7 +678,7 @@ if perfil_atual == "Admin":
         st.subheader("📝 Gestão e Cadastro de Produtos")
         
         tab_p1, tab_p2, tab_p3, tab_p4, tab_p5 = st.tabs([
-            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️️ Zerar Estoques", "📥 Importar Planilha"
+            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha"
         ])
         
         with tab_p1:
