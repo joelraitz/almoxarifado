@@ -656,10 +656,11 @@ if st.session_state["perfil"] == "Admin":
     with aba_prod:
         st.subheader("📝 Gestão e Cadastro de Produtos")
         
-        tab_p1, tab_p2, tab_p3, tab_p4 = st.tabs([
+        tab_p1, tab_p2, tab_p3, tab_p4, tab_p5 = st.tabs([
             "Cadastrar Manualmente", 
             "✏️ Editar Produto", 
             "❌ Excluir Produto", 
+            "🗑️ Zerar Estoques",
             "📥 Importar em Lote (Planilha Excel/CSV)"
         ])
         
@@ -768,8 +769,55 @@ if st.session_state["perfil"] == "Admin":
             else:
                 st.info("Nenhum produto cadastrado para exclusão.")
 
-        # Sub-aba 4: Importação em Lote via CSV/Excel com limpeza de arquivo após processamento
+        # Sub-aba 4: Zerar Estoques (Individual ou Geral)
         with tab_p4:
+            st.subheader("🗑️ Gerenciamento de Zeragem de Estoque")
+            st.write("Aqui você pode zerar o estoque de um produto específico ou zerar o estoque de **todos** os produtos do sistema de uma vez.")
+
+            conn = get_connection()
+            df_estoque_atual = pd.read_sql_query("SELECT sku, nome, qtd_estoque FROM produtos ORDER BY nome ASC", conn)
+            conn.close()
+
+            if not df_estoque_atual.empty:
+                tipo_zeragem = st.radio("Escolha o modo de zeragem", ["Zerar Estoque de um Produto Específico", "⚠️ Zerar o Estoque de TODOS os Produtos"], horizontal=True)
+
+                if tipo_zeragem == "Zerar Estoque de um Produto Específico":
+                    opcoes_zero = {f"{r['sku']} - {r['nome']} (Estoque Atual: {r['qtd_estoque']})": r['sku'] for _, r in df_estoque_atual.iterrows()}
+                    prod_zero_sel = st.selectbox("Selecione o Produto", list(opcoes_zero.keys()), key="sb_zero_prod")
+                    sku_a_zerar = opcoes_zero[prod_zero_sel]
+
+                    if st.button("Zerar Estoque deste Produto", type="primary", use_container_width=True):
+                        conn = get_connection()
+                        c = conn.cursor()
+                        c.execute("UPDATE produtos SET qtd_estoque = 0 WHERE sku = ?", (sku_a_zerar,))
+                        c.execute("""
+                            INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
+                            VALUES (?, 'Saída', (SELECT qtd_estoque FROM produtos WHERE sku = ?), 'Zeragem manual de estoque pelo Admin', ?, ?, 'Concluido')
+                        """, (sku_a_zerar, sku_a_zerar, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
+                        conn.commit()
+                        conn.close()
+                        st.success(f"Estoque do produto SKU {sku_a_zerar} zerado com sucesso!")
+                        st.rerun()
+                else:
+                    st.warning("⚠️ **Atenção:** Esta ação colocará a quantidade em estoque de **todos** os produtos cadastrados para 0 (zero).")
+                    confirma_geral = st.checkbox("Estou ciente e desejo zerar o estoque de todo o almoxarifado")
+
+                    if st.button("⚠️ Zerar TODO O ESTOQUE do Sistema", type="primary", use_container_width=True):
+                        if confirma_geral:
+                            conn = get_connection()
+                            c = conn.cursor()
+                            c.execute("UPDATE produtos SET qtd_estoque = 0")
+                            conn.commit()
+                            conn.close()
+                            st.success("O estoque de todos os produtos foi zerado com sucesso!")
+                            st.rerun()
+                        else:
+                            st.error("Marque a caixinha de confirmação acima para prosseguir com a zeragem total.")
+            else:
+                st.info("Nenhum produto cadastrado no sistema.")
+
+        # Sub-aba 5: Importação em Lote via CSV/Excel com limpeza de arquivo após processamento
+        with tab_p5:
             st.write("Envie uma planilha com os produtos para cadastrar múltiplos itens de uma só vez.")
             
             # Planilha modelo atualizada baseada exatamente no anexo
