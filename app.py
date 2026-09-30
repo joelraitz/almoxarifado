@@ -161,7 +161,7 @@ def marcar_como_lido_operador(usuario):
     conn.commit()
     conn.close()
 
-# --- GERADORES DE RELATÓRIO PDF DINÂMICOS E PROFISSIONAIS ---
+# --- GERADORES DE RELATÓRIO PDF COM AJUSTE DE CÉLULAS E PARÁGRAFOS ---
 def gerar_pdf_relatorio(df_produtos, titulo_relatorio):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
@@ -238,27 +238,4 @@ def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
     tabela = Table(data_matrix, colWidths=col_widths)
     tabela.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0f172a')),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-    ]))
-    story.append(tabela)
-    doc.build(story)
-    buffer.seek(0)
-    return buffer.getvalue()
-
-# --- TELA DE LOGIN ---
-if "logado" not in st.session_state:
-    st.session_state["logado"] = False
-    st.session_state["usuario"] = None
-    st.session_state["perfil"] = None
-
-if "modo_login" not in st.session_state:
-    st.session_state["modo_login"] = "login"
-
-def tela_login():
-    col1, col2, col3 = st.columns([1, 1.2, 1])
-    with col2:
-        st.markdown("
+        ('ALIGN', (0,
