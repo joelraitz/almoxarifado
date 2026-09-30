@@ -20,10 +20,6 @@ st.set_page_config(
 
 st.cache_data.clear()
 
-st.markdown("""
-
-""", unsafe_allow_html=True)
-
 DB_FILE = "almoxarifado.db"
 
 def hash_senha(senha):
@@ -111,8 +107,8 @@ def gerar_pdf_relatorio(df_produtos, titulo_relatorio):
     styles = getSampleStyleSheet()
 
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#0f172a'))
-    story.append(Paragraph(f"Relatório Formal - {titulo_relatorio}", title_style))
-    story.append(Paragraph(f"Emitido em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
+    story.append(Paragraph("Relatório Formal - " + str(titulo_relatorio), title_style))
+    story.append(Paragraph("Emitido em: " + datetime.datetime.now().strftime('%d/%m/%Y %H:%M'), styles['Normal']))
     story.append(Spacer(1, 10))
 
     cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontSize=8, leading=10)
@@ -155,8 +151,8 @@ def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
     styles = getSampleStyleSheet()
 
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=14, textColor=colors.HexColor('#0f172a'))
-    story.append(Paragraph(f"Relatório: {tipo_relatorio}", title_style))
-    story.append(Paragraph(f"Período: {titulo_periodo} | Emitido em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
+    story.append(Paragraph("Relatório: " + str(tipo_relatorio), title_style))
+    story.append(Paragraph("Período: " + str(titulo_periodo) + " | Emitido em: " + datetime.datetime.now().strftime('%d/%m/%Y %H:%M'), styles['Normal']))
     story.append(Spacer(1, 10))
 
     cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontSize=7.5, leading=9.5)
