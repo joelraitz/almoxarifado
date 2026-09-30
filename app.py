@@ -314,7 +314,7 @@ st.title("📦 Almoxarifado Inteligente")
 # Configuração de Notificações nos Títulos das Guia
 if st.session_state["perfil"] == "Admin":
     num_pendentes = contar_solicitacoes_pendentes_admin()
-    label_correcoes = f"🛠️ Correções / Estornos (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️️ Correções / Estornos"
+    label_correcoes = f"🛠️ Correções / Estornos (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️ Correções / Estornos"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Usuários"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 else:
@@ -519,7 +519,7 @@ with aba_rel:
 with aba_ajuste:
     col_aj_title, col_aj_btn = st.columns([4, 1])
     with col_aj_title:
-        st.subheader("⚠️ Correção e Estorno de Lançamentos")
+        st.subheader("⚠️️ Correção e Estorno de Lançamentos")
     with col_aj_btn:
         if st.button("🔄 Atualizar Tabela", key="btn_ref_ajuste", use_container_width=True):
             st.rerun()
@@ -789,11 +789,16 @@ if st.session_state["perfil"] == "Admin":
                     if st.button("Zerar Estoque deste Produto", type="primary", use_container_width=True):
                         conn = get_connection()
                         c = conn.cursor()
+                        c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (sku_a_zerar,))
+                        res_qtd = c.fetchone()
+                        qtd_anterior = res_qtd[0] if res_qtd else 0
+
                         c.execute("UPDATE produtos SET qtd_estoque = 0 WHERE sku = ?", (sku_a_zerar,))
-                        c.execute("""
-                            INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
-                            VALUES (?, 'Saída', (SELECT qtd_estoque FROM produtos WHERE sku = ?), 'Zeragem manual de estoque pelo Admin', ?, ?, 'Concluido')
-                        """, (sku_a_zerar, sku_a_zerar, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
+                        if qtd_anterior > 0:
+                            c.execute("""
+                                INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
+                                VALUES (?, 'Saída', ?, 'Zeragem manual de estoque pelo Admin', ?, ?, 'Concluido')
+                            """, (sku_a_zerar, qtd_anterior, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
                         conn.commit()
                         conn.close()
                         st.success(f"🧹 Sucesso! O estoque do produto SKU {sku_a_zerar} foi totalmente zerado.")
@@ -801,28 +806,37 @@ if st.session_state["perfil"] == "Admin":
                         st.rerun()
                 else:
                     st.warning("⚠️ **Atenção:** Esta ação colocará a quantidade em estoque de **todos** os produtos cadastrados para 0 (zero).")
-                    confirma_geral = st.checkbox("Estou ciente e desejo zerar o estoque de todo o almoxarifado")
+                    
+                    with st.form("form_zerar_geral"):
+                        confirma_geral = st.checkbox("Estou ciente e desejo zerar o estoque de todo o almoxarifado")
+                        btn_exec_geral = st.form_submit_button("⚠️ Zerar TODO O ESTOQUE do Sistema", type="primary", use_container_width=True)
 
-                    if st.button("⚠️ Zerar TODO O ESTOQUE do Sistema", type="primary", use_container_width=True):
-                        if confirma_geral:
-                            conn = get_connection()
-                            c = conn.cursor()
-                            c.execute("UPDATE produtos SET qtd_estoque = 0")
-                            conn.commit()
-                            conn.close()
-                            st.success("🧹 Operação concluída com sucesso! Todo o estoque do sistema foi zerado.")
-                            st.balloons()
-                            st.rerun()
-                        else:
-                            st.error("Marque a caixinha de confirmação acima para prosseguir com a zeragem total.")
+                        if btn_exec_geral:
+                            if confirma_geral:
+                                conn = get_connection()
+                                c = conn.cursor()
+                                prods_com_est = c.execute("SELECT sku, qtd_estoque FROM produtos WHERE qtd_estoque > 0").fetchall()
+                                for s_sku, s_qtd in prods_com_est:
+                                    c.execute("""
+                                        INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
+                                        VALUES (?, 'Saída', ?, 'Zeragem geral do almoxarifado pelo Admin', ?, ?, 'Concluido')
+                                    """, (s_sku, s_qtd, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
+                                
+                                c.execute("UPDATE produtos SET qtd_estoque = 0")
+                                conn.commit()
+                                conn.close()
+                                st.success("🧹 Operação concluída com sucesso! Todo o estoque do sistema foi zerado.")
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.error("Marque a caixinha de confirmação acima para prosseguir com a zeragem total.")
             else:
                 st.info("Nenhum produto cadastrado no sistema.")
 
-        # Sub-aba 5: Importação em Lote via CSV/Excel com limpeza e registro de entrada
+        # Sub-aba 5: Importação em Lote via CSV/Excel com limpeza de arquivo após processamento
         with tab_p5:
             st.write("Envie uma planilha com os produtos para cadastrar múltiplos itens de uma só vez.")
             
-            # Planilha modelo atualizada
             df_modelo = pd.DataFrame([
                 {"SKU": "ALM-001", "Nome do Produto": "Papel Sulfite A4 75g", "Categoria": "Consumíveis", "Estoque Mínimo": 10, "Preço Unitário": 25.50, "Quantidade Inicial": 200},
                 {"SKU": "ALM-002", "Nome do Produto": "Caneta Esferográfica Azul", "Categoria": "Escritório", "Estoque Mínimo": 20, "Preço Unitário": 1.56, "Quantidade Inicial": 200}
