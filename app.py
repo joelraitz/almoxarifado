@@ -114,12 +114,12 @@ def contar_solicitacoes_pendentes_admin():
 def contar_solicitacoes_operador(usuario):
     conn = get_connection()
     c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM solicitacoes_ajuste WHERE solicitante = ?", (usuario,))
+    c.execute("SELECT COUNT(*) FROM solicitacoes_ajuste WHERE solicitante = ? AND status = 'Pendente'", (usuario,))
     total = c.fetchone()[0]
     conn.close()
     return total
 
-# --- GERADORES DE RELATÓRIO PDF FORMALIZADOS (CORRIGIDO LARGURA DE COLUNAS) ---
+# --- GERADORES DE RELATÓRIO PDF FORMALIZADOS ---
 def gerar_pdf_relatorio(df_produtos, titulo_relatorio):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
@@ -173,7 +173,6 @@ def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
         if len(desc) > 20:
             desc = desc[:17] + "..."
         
-        # Envolvendo texto em Paragraph para quebra de linha correta e sem sobreposição
         p_prod = Paragraph(f"{r['SKU']} - {r['Produto']}", ParagraphStyle('Cell', fontSize=7, leading=8))
         dados.append([
             str(r['ID']), str(r['Data']), str(r['Tipo']),
@@ -181,7 +180,6 @@ def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
             str(r['Usuário']), desc
         ])
 
-    # Larguras corrigidas e espaçadas para evitar sobreposição nas colunas posteriores
     tabela = Table(dados, colWidths=[25, 80, 45, 155, 30, 55, 90])
     tabela.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0f172a')),
@@ -300,7 +298,7 @@ st.title("📦 Almoxarifado Inteligente")
 if st.session_state["perfil"] == "Admin":
     num_pendentes = contar_solicitacoes_pendentes_admin()
     label_correcoes = f"🛠️ Correções / Estornos (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️ Correções / Estornos"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️️ Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 else:
     num_solic_operador = contar_solicitacoes_operador(st.session_state["usuario"])
@@ -505,37 +503,73 @@ with aba_rel:
     else:
         st.info("Nenhum registo encontrado para o período e modelo selecionados.")
 
-# --- ABA CORREÇÃO ---
+# --- ABA CORREÇÃO / SOLICITAÇÃO ---
 with aba_ajuste:
     st.subheader("⚠️ Correção e Estorno de Lançamentos")
+    
     if st.session_state["perfil"] == "Admin":
         conn = get_connection()
-        df_sol = pd.read_sql_query("SELECT s.id as 'ID_Solicitacao', s.movimentacao_id as 'ID_Mov', m.sku, p.nome as 'Produto', m.tipo, m.quantidade, s.solicitante, s.motivo FROM solicitacoes_ajuste s JOIN movimentacoes m ON s.movimentacao_id = m.id JOIN produtos p ON m.sku = p.sku WHERE s.status = 'Pendente'", conn)
+        df_sol = pd.read_sql_query("SELECT s.id as 'ID_Solicitacao', s.movimentacao_id as 'ID_Mov', m.sku, p.nome as 'Produto', m.tipo, m.quantidade, s.solicitante, s.motivo, s.status FROM solicitacoes_ajuste s JOIN movimentacoes m ON s.movimentacao_id = m.id JOIN produtos p ON m.sku = p.sku WHERE s.status = 'Pendente'", conn)
         conn.close()
+        
         if not df_sol.empty:
+            st.markdown("### 📋 Solicitações Pendentes de Operadores")
             st.dataframe(df_sol, use_container_width=True)
             with st.form("form_aprova"):
-                sid = st.selectbox("Solicitação ID", df_sol["ID_Solicitacao"].tolist())
-                acao = st.radio("Ação", ["Aprovar", "Rejeitar"], horizontal=True)
-                if st.form_submit_button("Processar"):
+                sid = st.selectbox("Selecione o ID da Solicitação", df_sol["ID_Solicitacao"].tolist())
+                acao = st.radio("Ação Administrativa", ["Aprovar", "Rejeitar"], horizontal=True)
+                if st.form_submit_button("Processar Decisão", use_container_width=True):
                     conn = get_connection()
                     c = conn.cursor()
                     c.execute("SELECT m.sku, m.tipo, m.quantidade FROM solicitacoes_ajuste s JOIN movimentacoes m ON s.movimentacao_id = m.id WHERE s.id = ?", (sid,))
-                    sku_m, tipo_m, qtd_m = c.fetchone()
-                    if "Aprovar" in acao:
-                        f = -1 if tipo_m == "Entrada" else 1
-                        c.execute("UPDATE produtos SET qtd_estoque = qtd_estoque + ? WHERE sku = ?", (qtd_m * f, sku_m))
-                        c.execute("UPDATE solicitacoes_ajuste SET status = 'Aprovado' WHERE id = ?", (sid,))
-                    else:
-                        c.execute("UPDATE solicitacoes_ajuste SET status = 'Rejeitado' WHERE id = ?", (sid,))
-                    conn.commit()
+                    res_mov = c.fetchone()
+                    if res_mov:
+                        sku_m, tipo_m, qtd_m = res_mov
+                        if "Aprovar" in acao:
+                            f = -1 if tipo_m == "Entrada" else 1
+                            c.execute("UPDATE produtos SET qtd_estoque = qtd_estoque + ? WHERE sku = ?", (qtd_m * f, sku_m))
+                            c.execute("UPDATE solicitacoes_ajuste SET status = 'Aprovado' WHERE id = ?", (sid,))
+                        else:
+                            c.execute("UPDATE solicitacoes_ajuste SET status = 'Rejeitado' WHERE id = ?", (sid,))
+                        conn.commit()
+                        st.success("Solicitação processada com sucesso!")
                     conn.close()
-                    st.success("Processado com sucesso!")
                     st.rerun()
         else:
-            st.info("Nenhuma solicitação pendente.")
+            st.info("Não existem solicitações pendentes de operadores no momento.")
     else:
-        st.info("Painel de operador para solicitações.")
+        # Painel do Operador para solicitar correção aos administradores
+        st.markdown("### 📝 Solicitar Correção ou Estorno aos Administradores")
+        st.caption("Selecione um dos seus lançamentos recentes abaixo para solicitar a revisão ou estorno por parte da administração.")
+        
+        conn = get_connection()
+        df_minhas_mov = pd.read_sql_query("SELECT m.id as 'ID', m.data as 'Data', m.tipo as 'Tipo', p.nome as 'Produto', m.quantidade as 'Qtd', m.descricao as 'Descrição' FROM movimentacoes m JOIN produtos p ON m.sku = p.sku WHERE m.usuario = ? ORDER BY m.id DESC LIMIT 30", conn, params=(st.session_state["usuario"],))
+        conn.close()
+
+        if not df_minhas_mov.empty:
+            st.dataframe(df_minhas_mov, use_container_width=True)
+            
+            with st.form("form_pedir_correcão", clear_on_submit=True):
+                mov_id_sel = st.selectbox("Selecione o ID do Lançamento para Solicitar Correção", df_minhas_mov["ID"].tolist())
+                motivo_solic = st.text_area("Motivo detalhado da solicitação (ex: Quantidade lançada incorretamente)")
+                
+                if st.form_submit_button("📨 Enviar Solicitação aos Administradores", use_container_width=True):
+                    if motivo_solic.strip():
+                        conn = get_connection()
+                        c = conn.cursor()
+                        c.execute("""
+                            INSERT INTO solicitacoes_ajuste (movimentacao_id, solicitante, motivo, status, data_solicitacao)
+                            VALUES (?, ?, ?, 'Pendente', ?)
+                        """, (mov_id_sel, st.session_state["usuario"], motivo_solic, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                        conn.commit()
+                        conn.close()
+                        st.success("✅ Solicitação enviada com sucesso aos Administradores!")
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        st.warning("Por favor, preencha o motivo da solicitação.")
+        else:
+            st.info("Ainda não efetuou nenhuma movimentação para solicitar correção.")
 
 # --- GESTÃO DE PRODUTOS (ADMIN) ---
 if st.session_state["perfil"] == "Admin":
@@ -669,7 +703,7 @@ if st.session_state["perfil"] == "Admin":
     with aba_usr:
         st.subheader("👥 Gestão de Utilizadores (Incluir, Bloquear e Remover)")
         
-        tab_u1, tab_u2 = st.tabs(["➕ Incluir Novo Utilizador", "⚙️️ Gerir / Bloquear / Remover Utilizadores"])
+        tab_u1, tab_u2 = st.tabs(["➕ Incluir Novo Utilizador", "⚙️ Gerir / Bloquear / Remover Utilizadores"])
         
         with tab_u1:
             with st.form("form_novo_user", clear_on_submit=True):
@@ -727,7 +761,7 @@ if st.session_state["perfil"] == "Admin":
                             st.rerun()
 
                 with col_acao2:
-                    st.write("🗑️️ **Remover Utilizador**")
+                    st.write("🗑️ **Remover Utilizador**")
                     if st.button("Excluir Utilizador Definitivamente", type="primary", use_container_width=True):
                         if user_selecionado == "admin":
                             st.error("Não é permitido excluir o utilizador administrador principal ('admin').")
