@@ -195,6 +195,9 @@ if "logado" not in st.session_state:
 if "modo_login" not in st.session_state:
     st.session_state["modo_login"] = "login"
 
+if "upload_counter" not in st.session_state:
+    st.session_state["upload_counter"] = 0
+
 def tela_login():
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
@@ -682,10 +685,16 @@ if perfil_atual == "Admin":
             st.download_button("Baixar Modelo CSV Exato", data=df_mod.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig'), file_name="modelo_almoxarifado.csv", mime="text/csv")
             
             st.divider()
-            uploaded_file = st.file_uploader("Carregar arquivo de inventário (CSV ou Excel)", type=["csv", "xlsx", "xls"])
+            
+            # Utiliza a chave dinâmica baseada no contador para limpar o file_uploader após o upload
+            uploaded_file = st.file_uploader(
+                "Carregar arquivo de inventário (CSV ou Excel)", 
+                type=["csv", "xlsx", "xls"], 
+                key=f"uploader_{st.session_state['upload_counter']}"
+            )
+            
             if uploaded_file is not None:
                 try:
-                    # Lê o arquivo identificando o separador automaticamente
                     if uploaded_file.name.endswith('.csv'):
                         df_upload = pd.read_csv(uploaded_file, sep=None, engine='python')
                     else:
@@ -699,11 +708,9 @@ if perfil_atual == "Admin":
                         c = conn.cursor()
                         sucessos = 0
                         
-                        # Limpa os nomes das colunas
-                        df_upload.columns = [str(c).strip().lower() for c in df_upload.columns]
+                        df_upload.columns = [str(col).strip().lower() for col in df_upload.columns]
                         
-                        for idx, row in df_upload.iterrows():
-                            # Procura pelo SKU independentemente da capitalização
+                        for _, row in df_upload.iterrows():
                             sku = ""
                             for k in row.index:
                                 if "sku" in k:
@@ -722,7 +729,6 @@ if perfil_atual == "Admin":
                                     cat = str(row[k]).strip()
                                     break
 
-                            # Procura pela quantidade informada na planilha
                             qtd_upload = 0
                             for k in row.index:
                                 if any(termo in k for termo in ['quant', 'qtd', 'estoque', 'valor']):
@@ -734,7 +740,6 @@ if perfil_atual == "Admin":
                                     except:
                                         pass
 
-                            # Procura pelo preço
                             preco = 0.0
                             for k in row.index:
                                 if any(termo in k for termo in ['prec', 'preç', 'valor']):
@@ -746,7 +751,6 @@ if perfil_atual == "Admin":
                                     except:
                                         pass
 
-                            # Procura pelo mínimo
                             minimo = 5
                             for k in row.index:
                                 if any(termo in k for termo in ['min', 'mín']):
@@ -762,7 +766,6 @@ if perfil_atual == "Admin":
                                 if not nome or nome == "nan":
                                     nome = f"Produto {sku}"
 
-                                # Consulta estoque atual no banco
                                 c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (sku,))
                                 res_prod = c.fetchone()
                                 
@@ -780,7 +783,6 @@ if perfil_atual == "Admin":
                                         VALUES (?, ?, ?, ?, ?, ?)
                                     """, (sku, nome, cat, qtd_upload, minimo, preco))
                                 
-                                # Regista movimentação de entrada
                                 if qtd_upload > 0:
                                     c.execute("""
                                         INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
@@ -791,13 +793,18 @@ if perfil_atual == "Admin":
 
                         conn.commit()
                         conn.close()
-                        st.success(f"✅ {sucessos} produtos processados e somados com sucesso! Verifique a aba Dashboard.")
+                        
+                        # Mensagem de sucesso solicitada explicitamente
+                        st.success(f"✅ Materiais adicionados com sucesso! ({sucessos} produtos processados e somados ao stock).")
+                        
+                        # Incrementa o contador para limpar o anexo do uploader e recarrega a página
+                        st.session_state["upload_counter"] += 1
                         st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao ler o ficheiro: {e}")
 
     with aba_cat:
-        st.subheader("🏷️️ Categorias")
+        st.subheader("🏷️ Categorias")
         conn = get_connection()
         st.dataframe(pd.read_sql_query("SELECT nome FROM categorias", conn), use_container_width=True)
         conn.close()
