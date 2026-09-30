@@ -685,6 +685,7 @@ if perfil_atual == "Admin":
             uploaded_file = st.file_uploader("Carregar arquivo de inventário (CSV ou Excel)", type=["csv", "xlsx", "xls"])
             if uploaded_file is not None:
                 try:
+                    # Lê o arquivo identificando o separador automaticamente
                     if uploaded_file.name.endswith('.csv'):
                         df_upload = pd.read_csv(uploaded_file, sep=None, engine='python')
                     else:
@@ -698,45 +699,70 @@ if perfil_atual == "Admin":
                         c = conn.cursor()
                         sucessos = 0
                         
-                        # Normaliza os nomes das colunas do dataframe para minúsculas para evitar erros de leitura
+                        # Limpa os nomes das colunas
                         df_upload.columns = [str(c).strip().lower() for c in df_upload.columns]
                         
-                        for _, row in df_upload.iterrows():
-                            sku = str(row.get('sku', '')).strip()
-                            nome = str(row.get('nome', '')).strip()
-                            cat = str(row.get('categoria', 'Geral')).strip()
+                        for idx, row in df_upload.iterrows():
+                            # Procura pelo SKU independentemente da capitalização
+                            sku = ""
+                            for k in row.index:
+                                if "sku" in k:
+                                    sku = str(row[k]).strip()
+                                    break
                             
-                            # Tenta ler a quantidade de colunas comuns
+                            nome = ""
+                            for k in row.index:
+                                if "nome" in k:
+                                    nome = str(row[k]).strip()
+                                    break
+
+                            cat = "Geral"
+                            for k in row.index:
+                                if "categoria" in k or "grupo" in k:
+                                    cat = str(row[k]).strip()
+                                    break
+
+                            # Procura pela quantidade informada na planilha
                             qtd_upload = 0
-                            for col_q in ['quantidade', 'qtd', 'estoque', 'quant']:
-                                if col_q in row and pd.notna(row[col_q]):
+                            for k in row.index:
+                                if any(termo in k for termo in ['quant', 'qtd', 'estoque', 'valor']):
                                     try:
-                                        qtd_upload = int(float(str(row[col_q])))
-                                        break
+                                        val = row[k]
+                                        if pd.notna(val):
+                                            qtd_upload = int(float(str(val).replace(',', '.')))
+                                            break
                                     except:
                                         pass
 
-                            # Tenta ler o preço e mínimo
-                            minimo = 5
-                            for col_m in ['minimo', 'qtd_minima', 'min']:
-                                if col_m in row and pd.notna(row[col_m]):
-                                    try:
-                                        minimo = int(float(str(row[col_m])))
-                                        break
-                                    except:
-                                        pass
-
+                            # Procura pelo preço
                             preco = 0.0
-                            for col_p in ['preco', 'preço', 'valor', 'unitario']:
-                                if col_p in row and pd.notna(row[col_p]):
+                            for k in row.index:
+                                if any(termo in k for termo in ['prec', 'preç', 'valor']):
                                     try:
-                                        preco = float(str(row[col_p]).replace('R$', '').replace(',', '.'))
-                                        break
+                                        val = row[k]
+                                        if pd.notna(val):
+                                            preco = float(str(val).replace('R$', '').replace(',', '.'))
+                                            break
                                     except:
                                         pass
 
-                            if sku and nome:
-                                # Verifica se o produto já existe para somar corretamente
+                            # Procura pelo mínimo
+                            minimo = 5
+                            for k in row.index:
+                                if any(termo in k for termo in ['min', 'mín']):
+                                    try:
+                                        val = row[k]
+                                        if pd.notna(val):
+                                            minimo = int(float(str(val)))
+                                            break
+                                    except:
+                                        pass
+
+                            if sku and sku != "nan":
+                                if not nome or nome == "nan":
+                                    nome = f"Produto {sku}"
+
+                                # Consulta estoque atual no banco
                                 c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (sku,))
                                 res_prod = c.fetchone()
                                 
@@ -754,7 +780,7 @@ if perfil_atual == "Admin":
                                         VALUES (?, ?, ?, ?, ?, ?)
                                     """, (sku, nome, cat, qtd_upload, minimo, preco))
                                 
-                                # Regista a movimentação formal de entrada
+                                # Regista movimentação de entrada
                                 if qtd_upload > 0:
                                     c.execute("""
                                         INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
@@ -765,13 +791,13 @@ if perfil_atual == "Admin":
 
                         conn.commit()
                         conn.close()
-                        st.success(f"✅ {sucessos} produtos importados e somados ao estoque atual com sucesso! A página está pronta para novos uploads.")
+                        st.success(f"✅ {sucessos} produtos processados e somados com sucesso! Verifique a aba Dashboard.")
                         st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao ler o ficheiro: {e}")
 
     with aba_cat:
-        st.subheader("🏷️ Categorias")
+        st.subheader("🏷️️ Categorias")
         conn = get_connection()
         st.dataframe(pd.read_sql_query("SELECT nome FROM categorias", conn), use_container_width=True)
         conn.close()
