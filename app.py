@@ -40,6 +40,7 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS solicitacoes_ajuste (id INTEGER PRIMARY KEY AUTOINCREMENT, movimentacao_id INTEGER, solicitante TEXT, destinatario TEXT, motivo TEXT, status TEXT DEFAULT 'Pendente', data_solicitacao TEXT, resposta_admin TEXT, avaliador TEXT, lido_gestor INTEGER DEFAULT 0, lido_operador INTEGER DEFAULT 0)")
     c.execute("CREATE TABLE IF NOT EXISTS ordens_servico (id INTEGER PRIMARY KEY AUTOINCREMENT, movimentacao_id INTEGER, data_abertura TEXT, data_limite TEXT, destino TEXT, usuario_abertura TEXT, usuario_consumidor TEXT, observacoes TEXT, status TEXT DEFAULT 'Aberta')")
     c.execute("CREATE TABLE IF NOT EXISTS fotos_os (id INTEGER PRIMARY KEY AUTOINCREMENT, os_id INTEGER, imagem BLOB, latitude TEXT, longitude TEXT, data_captura TEXT, status_sincronizacao TEXT DEFAULT 'Pendente')")
+    c.execute("CREATE TABLE IF NOT EXISTS notas_fiscais (id INTEGER PRIMARY KEY AUTOINCREMENT, numero_nf TEXT, sku TEXT, fornecedor TEXT, arquivo_nf BLOB, nome_arquivo TEXT, data_upload TEXT, usuario TEXT)")
 
     for col_sql in [
         "ALTER TABLE solicitacoes_ajuste ADD COLUMN resposta_admin TEXT",
@@ -578,7 +579,9 @@ with aba_historico_os:
             p.nome as 'Produto', 
             m.tipo as 'Operação', 
             m.quantidade as 'Qtd', 
-            os.status as 'Status OS'
+            os.status as 'Status OS',
+            os.observacoes,
+            m.sku
         FROM ordens_servico os
         JOIN movimentacoes m ON os.movimentacao_id = m.id
         JOIN produtos p ON m.sku = p.sku
@@ -588,8 +591,32 @@ with aba_historico_os:
     conn.close()
 
     if not df_historico_os.empty:
-        st.dataframe(df_historico_os, use_container_width=True)
+        st.dataframe(df_historico_os[['ID OS', 'Abertura', 'Prazo Limite', 'Emissor', 'Consumidor', 'Destino', 'Produto', 'Operação', 'Qtd', 'Status OS']], use_container_width=True)
         
+        st.divider()
+        st.subheader("🖨️ Imprimir / Descarregar Ordem de Serviço Selecionada")
+        
+        opcoes_os_print = {f"OS #{row['ID OS']:04d} - {row['Produto']} ({row['Consumidor']})": row for _, row in df_historico_os.iterrows()}
+        escolha_os_print = st.selectbox("Selecione a OS para gerar o documento PDF", list(opcoes_os_print.keys()))
+        
+        if escolha_os_print:
+            os_sel = opcoes_os_print[escolha_os_print]
+            pdf_os_hist_bytes = gerar_pdf_ordem_servico(
+                os_sel['ID OS'], os_sel['Abertura'], os_sel['Prazo Limite'], 
+                os_sel['Destino'], os_sel['Emissor'], os_sel['Consumidor'], 
+                os_sel['observacoes'], os_sel['Produto'], os_sel['sku'], 
+                os_sel['Operação'], os_sel['Qtd']
+            )
+            
+            st.download_button(
+                label=f"📄 Baixar PDF da OS #{os_sel['ID OS']:04d}",
+                data=pdf_os_hist_bytes,
+                file_name=f"ordem_servico_{os_sel['ID OS']:04d}.pdf",
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True
+            )
+
         st.divider()
         st.subheader("🔍 Consultar Fotografias e Comprovações Georreferenciadas (Fila Local / Offline)")
         
@@ -638,6 +665,7 @@ with aba_rel:
         ]
         if perfil_atual == "Admin":
             lista_modelos_rel.append("Relatório de Auditoria / Ações Gerais entre Utilizadores")
+            lista_modelos_rel.append("Relatório de Notas Fiscais (Auditoria Fiscal)")
     else:
         st.subheader("📈 Meus Relatórios de Lançamentos (" + str(st.session_state['usuario']) + ")")
         lista_modelos_rel = [
@@ -700,7 +728,11 @@ with aba_rel:
             q = base_query + " WHERE m.usuario = ? AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
             df_m = pd.read_sql_query(q, conn, params=(usuario_atual, str_inicio, str_fim))
     else:
-        if "Auditoria" in tipo_relatorio_op:
+        if "Notas Fiscais" in tipo_relatorio_op:
+            nome_arquivo_pdf = "relatorio_auditoria_notas_fiscais.pdf"
+            q_nf = "SELECT nf.id as 'ID NF', nf.numero_nf as 'Nº NF', nf.sku as 'SKU', p.nome as 'Produto', nf.fornecedor as 'Fornecedor', nf.nome_arquivo as 'Ficheiro', nf.data_upload as 'Data Upload', nf.usuario as 'Utilizador' FROM notas_fiscais nf JOIN produtos p ON nf.sku = p.sku ORDER BY nf.id DESC"
+            df_m = pd.read_sql_query(q_nf, conn)
+        elif "Auditoria" in tipo_relatorio_op:
             nome_arquivo_pdf = "relatorio_de_auditoria.pdf"
             q_audit = "SELECT s.id as 'ID Sol.', s.data_solicitacao as 'Data Solicitação', s.solicitante as 'Operador', s.destinatario as 'Destinado a', s.motivo as 'Motivo', s.status as 'Status', COALESCE(s.avaliador, 'Não avaliado') as 'Avaliador', COALESCE(s.resposta_admin, '-') as 'Resposta' FROM solicitacoes_ajuste s WHERE s.data_solicitacao BETWEEN ? AND ? ORDER BY s.id DESC"
             df_m = pd.read_sql_query(q_audit, conn, params=(str_inicio, str_fim))
@@ -837,9 +869,9 @@ if perfil_atual == "Supervisor":
 
 if perfil_atual == "Admin":
     with aba_prod:
-        st.subheader("📝 Gestão e Cadastro de Produtos")
-        tab_p1, tab_p2, tab_p3, tab_p4, tab_p5 = st.tabs([
-            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha"
+        st.subheader("📝 Gestão e Cadastro de Produtos & Notas Fiscais")
+        tab_p1, tab_p2, tab_p3, tab_p4, tab_p5, tab_p6 = st.tabs([
+            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha", "🧾 Notas Fiscais (Auditoria)"
         ])
         
         with tab_p1:
@@ -1036,6 +1068,55 @@ if perfil_atual == "Admin":
                         st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao ler o ficheiro: {e}")
+
+        with tab_p6:
+            st.subheader("🧾 Upload e Gestão de Notas Fiscais para Auditoria")
+            st.info("Guarde o documento ou comprovativo da Nota Fiscal (PDF ou imagem) vinculado a um produto específico. Estes dados ficam registados e integrados diretamente com o Relatório de Auditoria Fiscal.")
+
+            conn = get_connection()
+            prods_nf = pd.read_sql_query("SELECT sku, nome FROM produtos ORDER BY nome ASC", conn)
+            conn.close()
+
+            if not prods_nf.empty:
+                opcoes_nf = {str(row['sku']) + " - " + str(row['nome']): row["sku"] for _, row in prods_nf.iterrows()}
+                
+                with st.form("form_upload_nf", clear_on_submit=True):
+                    sku_escolhido = st.selectbox("Selecione o Produto Referente à Nota Fiscal", list(opcoes_nf.keys()))
+                    numero_nf_input = st.text_input("Número da Nota Fiscal (ex: NF-98321)").strip()
+                    fornecedor_input = st.text_input("Nome do Fornecedor / Empresa Emitente").strip()
+                    arquivo_nf_up = st.file_uploader("Ficheiro da Nota Fiscal (PDF, JPG, PNG)", type=["pdf", "jpg", "jpeg", "png"])
+                    
+                    if st.form_submit_button("💾 Guardar Nota Fiscal e Comunicar com Auditoria", type="primary"):
+                        if not numero_nf_input or not fornecedor_input or arquivo_nf_up is None:
+                            st.warning("Por favor, preencha o número da NF, o fornecedor e carregue o ficheiro.")
+                        else:
+                            sku_sel = opcoes_nf[sku_escolhido]
+                            nf_bytes = arquivo_nf_up.getvalue()
+                            nome_arq = arquivo_nf_up.name
+                            
+                            conn = get_connection()
+                            c = conn.cursor()
+                            c.execute(
+                                "INSERT INTO notas_fiscais (numero_nf, sku, fornecedor, arquivo_nf, nome_arquivo, data_upload, usuario) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                (numero_nf_input, sku_sel, fornecedor_input, sqlite3.Binary(nf_bytes), nome_arq, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"])
+                            )
+                            conn.commit()
+                            conn.close()
+                            st.success("✅ Nota fiscal guardada com sucesso e integrada no relatório de auditoria!")
+                            st.rerun()
+            else:
+                st.warning("Cadastre produtos primeiro para poder associar Notas Fiscais.")
+
+            st.divider()
+            st.subheader("📋 Lista de Notas Fiscais Registadas")
+            conn = get_connection()
+            df_nfs_cad = pd.read_sql_query("SELECT nf.id as 'ID', nf.numero_nf as 'Nº NF', p.name as 'Produto', nf.fornecedor as 'Fornecedor', nf.nome_arquivo as 'Ficheiro', nf.data_upload as 'Data', nf.usuario as 'Utilizador' FROM notas_fiscais nf JOIN produtos p ON nf.sku = p.sku ORDER BY nf.id DESC", conn) if False else pd.read_sql_query("SELECT nf.id as 'ID', nf.numero_nf as 'Nº NF', p.nome as 'Produto', nf.fornecedor as 'Fornecedor', nf.nome_arquivo as 'Ficheiro', nf.data_upload as 'Data', nf.usuario as 'Utilizador' FROM notas_fiscais nf JOIN produtos p ON nf.sku = p.sku ORDER BY nf.id DESC", conn)
+            conn.close()
+
+            if not df_nfs_cad.empty:
+                st.dataframe(df_nfs_cad, use_container_width=True)
+            else:
+                st.info("Nenhuma nota fiscal registada até ao momento.")
 
     with aba_cat:
         st.subheader("🏷️ Categorias")
