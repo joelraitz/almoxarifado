@@ -21,7 +21,7 @@ st.markdown("""
     
 """, unsafe_allow_html=True)
 
-# --- BANCO DE DADOS E SEGURANÇA ---
+# --- BANCO DE DADOS E SEGURANÇA ROBUSTA ---
 DB_FILE = "almoxarifado.db"
 
 def hash_senha(senha):
@@ -77,6 +77,7 @@ def init_db():
         )
     """)
     
+    # Adicionamos colunas de resposta do admin se não existirem
     c.execute("""
         CREATE TABLE IF NOT EXISTS solicitacoes_ajuste (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,7 +85,8 @@ def init_db():
             solicitante TEXT,
             motivo TEXT,
             status TEXT DEFAULT 'Pendente',
-            data_solicitacao TEXT
+            data_solicitacao TEXT,
+            resposta_admin TEXT
         )
     """)
 
@@ -111,10 +113,11 @@ def contar_solicitacoes_pendentes_admin():
     conn.close()
     return total
 
-def contar_solicitacoes_operador(usuario):
+def contar_notificacoes_operador(usuario):
     conn = get_connection()
     c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM solicitacoes_ajuste WHERE solicitante = ? AND status = 'Pendente'", (usuario,))
+    # Conta respostas dadas a solicitações do operador que ainda não foram vistas ou simplesmente pendentes/finalizadas
+    c.execute("SELECT COUNT(*) FROM solicitacoes_ajuste WHERE solicitante = ? AND status != 'Pendente'", (usuario,))
     total = c.fetchone()[0]
     conn.close()
     return total
@@ -298,11 +301,11 @@ st.title("📦 Almoxarifado Inteligente")
 if st.session_state["perfil"] == "Admin":
     num_pendentes = contar_solicitacoes_pendentes_admin()
     label_correcoes = f"🛠️ Correções / Estornos (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️ Correções / Estornos"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️️ Categorias", "👥 Gestão de Utilizadores"])
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 else:
-    num_solic_operador = contar_solicitacoes_operador(st.session_state["usuario"])
-    label_solic_op = f"🛠️ Solicitar Correção (🔴 {num_solic_operador})" if num_solic_operador > 0 else "🛠️ Solicitar Correção"
+    num_notif = contar_notificacoes_operador(st.session_state["usuario"])
+    label_solic_op = f"🛠️ Solicitar Correção (🔔 {num_notif})" if num_notif > 0 else "🛠️️ Solicitar Correção"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Meus Relatórios", label_solic_op])
     aba_dash, aba_mov, aba_rel, aba_ajuste = abas
 
@@ -503,11 +506,11 @@ with aba_rel:
     else:
         st.info("Nenhum registo encontrado para o período e modelo selecionados.")
 
-# --- ABA CORREÇÃO / SOLICITAÇÃO ---
+# --- ABA CORREÇÃO / APROVAÇÃO E NOTIFICAÇÕES ---
 with aba_ajuste:
-    st.subheader("⚠️ Correção e Estorno de Lançamentos")
-    
     if st.session_state["perfil"] == "Admin":
+        st.subheader("⚠️ Gestão e Aprovação de Solicitações de Correção")
+        
         conn = get_connection()
         df_sol = pd.read_sql_query("SELECT s.id as 'ID_Solicitacao', s.movimentacao_id as 'ID_Mov', m.sku, p.nome as 'Produto', m.tipo, m.quantidade, s.solicitante, s.motivo, s.status FROM solicitacoes_ajuste s JOIN movimentacoes m ON s.movimentacao_id = m.id JOIN produtos p ON m.sku = p.sku WHERE s.status = 'Pendente'", conn)
         conn.close()
@@ -515,40 +518,56 @@ with aba_ajuste:
         if not df_sol.empty:
             st.markdown("### 📋 Solicitações Pendentes de Operadores")
             st.dataframe(df_sol, use_container_width=True)
-            with st.form("form_aprova"):
-                sid = st.selectbox("Selecione o ID da Solicitação", df_sol["ID_Solicitacao"].tolist())
-                acao = st.radio("Ação Administrativa", ["Aprovar", "Rejeitar"], horizontal=True)
-                if st.form_submit_button("Processar Decisão", use_container_width=True):
+            
+            with st.form("form_aprova_detalhado"):
+                sid = st.selectbox("Selecione o ID da Solicitação para Avaliar", df_sol["ID_Solicitacao"].tolist())
+                acao = st.radio("Decisão Administrativa", ["Aprovar Correção", "Rejeitar Correção"], horizontal=True)
+                resp_admin = st.text_area("Justificativa / Descrição do Administrador (Enviada como notificação ao operador)")
+                
+                if st.form_submit_button("💾 Processar e Notificar Operador", use_container_width=True):
                     conn = get_connection()
                     c = conn.cursor()
                     c.execute("SELECT m.sku, m.tipo, m.quantidade FROM solicitacoes_ajuste s JOIN movimentacoes m ON s.movimentacao_id = m.id WHERE s.id = ?", (sid,))
                     res_mov = c.fetchone()
+                    
                     if res_mov:
                         sku_m, tipo_m, qtd_m = res_mov
+                        novo_status_sol = "Aprovado" if "Aprovar" in acao else "Rejeitado"
+                        
                         if "Aprovar" in acao:
                             f = -1 if tipo_m == "Entrada" else 1
                             c.execute("UPDATE produtos SET qtd_estoque = qtd_estoque + ? WHERE sku = ?", (qtd_m * f, sku_m))
-                            c.execute("UPDATE solicitacoes_ajuste SET status = 'Aprovado' WHERE id = ?", (sid,))
-                        else:
-                            c.execute("UPDATE solicitacoes_ajuste SET status = 'Rejeitado' WHERE id = ?", (sid,))
+                        
+                        c.execute("UPDATE solicitacoes_ajuste SET status = ?, resposta_admin = ? WHERE id = ?", (novo_status_sol, resp_admin, sid))
                         conn.commit()
-                        st.success("Solicitação processada com sucesso!")
+                        st.success(f"✅ Solicitação processada com sucesso! O operador foi notificado.")
+                        st.balloons()
                     conn.close()
                     st.rerun()
         else:
             st.info("Não existem solicitações pendentes de operadores no momento.")
     else:
-        # Painel do Operador para solicitar correção aos administradores
-        st.markdown("### 📝 Solicitar Correção ou Estorno aos Administradores")
-        st.caption("Selecione um dos seus lançamentos recentes abaixo para solicitar a revisão ou estorno por parte da administração.")
+        # Painel do Operador para solicitar e acompanhar notificações de resposta
+        st.subheader("🛠️ Minhas Solicitações e Notificações de Correção")
+        st.caption("Aqui pode acompanhar o status das suas solicitações de correção avaliadas pelos administradores.")
+        
+        conn = get_connection()
+        df_notif = pd.read_sql_query("SELECT s.id as 'ID', m.data as 'Data Mov.', m.tipo as 'Tipo', p.nome as 'Produto', s.motivo as 'Meu Motivo', s.status as 'Status', s.resposta_admin as 'Resposta da Administração' FROM solicitacoes_ajuste s JOIN movimentacoes m ON s.movimentacao_id = m.id JOIN produtos p ON m.sku = p.sku WHERE s.solicitante = ? ORDER BY s.id DESC", conn, params=(st.session_state["usuario"],))
+        conn.close()
+
+        if not df_notif.empty:
+            st.dataframe(df_notif, use_container_width=True)
+        else:
+            st.info("Ainda não possui solicitações registadas.")
+
+        st.divider()
+        st.markdown("### 📝 Nova Solicitação de Correção / Estorno")
         
         conn = get_connection()
         df_minhas_mov = pd.read_sql_query("SELECT m.id as 'ID', m.data as 'Data', m.tipo as 'Tipo', p.nome as 'Produto', m.quantidade as 'Qtd', m.descricao as 'Descrição' FROM movimentacoes m JOIN produtos p ON m.sku = p.sku WHERE m.usuario = ? ORDER BY m.id DESC LIMIT 30", conn, params=(st.session_state["usuario"],))
         conn.close()
 
         if not df_minhas_mov.empty:
-            st.dataframe(df_minhas_mov, use_container_width=True)
-            
             with st.form("form_pedir_correcão", clear_on_submit=True):
                 mov_id_sel = st.selectbox("Selecione o ID do Lançamento para Solicitar Correção", df_minhas_mov["ID"].tolist())
                 motivo_solic = st.text_area("Motivo detalhado da solicitação (ex: Quantidade lançada incorretamente)")
@@ -558,8 +577,8 @@ with aba_ajuste:
                         conn = get_connection()
                         c = conn.cursor()
                         c.execute("""
-                            INSERT INTO solicitacoes_ajuste (movimentacao_id, solicitante, motivo, status, data_solicitacao)
-                            VALUES (?, ?, ?, 'Pendente', ?)
+                            INSERT INTO solicitacoes_ajuste (movimentacao_id, solicitante, motivo, status, data_solicitacao, resposta_admin)
+                            VALUES (?, ?, ?, 'Pendente', ?, 'Aguardando avaliação')
                         """, (mov_id_sel, st.session_state["usuario"], motivo_solic, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                         conn.commit()
                         conn.close()
@@ -568,8 +587,6 @@ with aba_ajuste:
                         st.rerun()
                     else:
                         st.warning("Por favor, preencha o motivo da solicitação.")
-        else:
-            st.info("Ainda não efetuou nenhuma movimentação para solicitar correção.")
 
 # --- GESTÃO DE PRODUTOS (ADMIN) ---
 if st.session_state["perfil"] == "Admin":
