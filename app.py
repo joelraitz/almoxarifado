@@ -663,7 +663,7 @@ if perfil_atual == "Admin":
 
             else:
                 conn.close()
-                st.warning("⚠️️ Atenção: Esta ação vai zerar o estoque de **todos** os produtos cadastrados no sistema.")
+                st.warning("⚠️ Atenção: Esta ação vai zerar o estoque de **todos** os produtos cadastrados no sistema.")
                 if st.button("Zeragem Geral em Lote (Todos os Produtos)", type="primary"):
                     conn = get_connection()
                     c = conn.cursor()
@@ -697,21 +697,51 @@ if perfil_atual == "Admin":
                         conn = get_connection()
                         c = conn.cursor()
                         sucessos = 0
+                        
+                        # Normaliza os nomes das colunas do dataframe para minúsculas para evitar erros de leitura
+                        df_upload.columns = [str(c).strip().lower() for c in df_upload.columns]
+                        
                         for _, row in df_upload.iterrows():
                             sku = str(row.get('sku', '')).strip()
                             nome = str(row.get('nome', '')).strip()
                             cat = str(row.get('categoria', 'Geral')).strip()
-                            minimo = int(row.get('minimo', 5))
-                            preco = float(row.get('preco', 0.0))
-                            qtd_upload = int(row.get('quantidade', 0))
+                            
+                            # Tenta ler a quantidade de colunas comuns
+                            qtd_upload = 0
+                            for col_q in ['quantidade', 'qtd', 'estoque', 'quant']:
+                                if col_q in row and pd.notna(row[col_q]):
+                                    try:
+                                        qtd_upload = int(float(str(row[col_q])))
+                                        break
+                                    except:
+                                        pass
+
+                            # Tenta ler o preço e mínimo
+                            minimo = 5
+                            for col_m in ['minimo', 'qtd_minima', 'min']:
+                                if col_m in row and pd.notna(row[col_m]):
+                                    try:
+                                        minimo = int(float(str(row[col_m])))
+                                        break
+                                    except:
+                                        pass
+
+                            preco = 0.0
+                            for col_p in ['preco', 'preço', 'valor', 'unitario']:
+                                if col_p in row and pd.notna(row[col_p]):
+                                    try:
+                                        preco = float(str(row[col_p]).replace('R$', '').replace(',', '.'))
+                                        break
+                                    except:
+                                        pass
 
                             if sku and nome:
-                                # Verifica se o produto já existe para somar corretamente o estoque
+                                # Verifica se o produto já existe para somar corretamente
                                 c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (sku,))
                                 res_prod = c.fetchone()
                                 
                                 if res_prod:
-                                    qtd_existente = res_prod[0]
+                                    qtd_existente = int(res_prod[0])
                                     nova_qtd = qtd_existente + qtd_upload
                                     c.execute("""
                                         UPDATE produtos 
@@ -724,17 +754,19 @@ if perfil_atual == "Admin":
                                         VALUES (?, ?, ?, ?, ?, ?)
                                     """, (sku, nome, cat, qtd_upload, minimo, preco))
                                 
-                                # Registra também a movimentação de entrada em lote
-                                c.execute("""
-                                    INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
-                                    VALUES (?, 'Entrada', ?, 'Importação em lote via planilha', ?, ?, 'Concluido')
-                                """, (sku, qtd_upload, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
+                                # Regista a movimentação formal de entrada
+                                if qtd_upload > 0:
+                                    c.execute("""
+                                        INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
+                                        VALUES (?, 'Entrada', ?, 'Importação em lote via planilha', ?, ?, 'Concluido')
+                                    """, (sku, qtd_upload, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
                                 
                                 sucessos += 1
 
                         conn.commit()
                         conn.close()
                         st.success(f"✅ {sucessos} produtos importados e somados ao estoque atual com sucesso! A página está pronta para novos uploads.")
+                        st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao ler o ficheiro: {e}")
 
