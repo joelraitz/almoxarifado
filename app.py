@@ -77,7 +77,6 @@ def init_db():
         )
     """)
     
-    # Adicionamos colunas de resposta do admin se não existirem
     c.execute("""
         CREATE TABLE IF NOT EXISTS solicitacoes_ajuste (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,6 +88,12 @@ def init_db():
             resposta_admin TEXT
         )
     """)
+
+    # Migração automática caso a tabela já exista sem a coluna resposta_admin
+    try:
+        c.execute("ALTER TABLE solicitacoes_ajuste ADD COLUMN resposta_admin TEXT")
+    except sqlite3.OperationalError:
+        pass # Coluna já existe
 
     c.execute("SELECT count(*) FROM categorias")
     if c.fetchone()[0] == 0:
@@ -116,7 +121,6 @@ def contar_solicitacoes_pendentes_admin():
 def contar_notificacoes_operador(usuario):
     conn = get_connection()
     c = conn.cursor()
-    # Conta respostas dadas a solicitações do operador que ainda não foram vistas ou simplesmente pendentes/finalizadas
     c.execute("SELECT COUNT(*) FROM solicitacoes_ajuste WHERE solicitante = ? AND status != 'Pendente'", (usuario,))
     total = c.fetchone()[0]
     conn.close()
@@ -305,7 +309,7 @@ if st.session_state["perfil"] == "Admin":
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 else:
     num_notif = contar_notificacoes_operador(st.session_state["usuario"])
-    label_solic_op = f"🛠️ Solicitar Correção (🔔 {num_notif})" if num_notif > 0 else "🛠️️ Solicitar Correção"
+    label_solic_op = f"🛠️ Solicitar Correção (🔔 {num_notif})" if num_notif > 0 else "🛠️ Solicitar Correção"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Meus Relatórios", label_solic_op])
     aba_dash, aba_mov, aba_rel, aba_ajuste = abas
 
@@ -552,7 +556,16 @@ with aba_ajuste:
         st.caption("Aqui pode acompanhar o status das suas solicitações de correção avaliadas pelos administradores.")
         
         conn = get_connection()
-        df_notif = pd.read_sql_query("SELECT s.id as 'ID', m.data as 'Data Mov.', m.tipo as 'Tipo', p.nome as 'Produto', s.motivo as 'Meu Motivo', s.status as 'Status', s.resposta_admin as 'Resposta da Administração' FROM solicitacoes_ajuste s JOIN movimentacoes m ON s.movimentacao_id = m.id JOIN produtos p ON m.sku = p.sku WHERE s.solicitante = ? ORDER BY s.id DESC", conn, params=(st.session_state["usuario"],))
+        df_notif = pd.read_sql_query("""
+            SELECT s.id as 'ID', m.data as 'Data Mov.', m.tipo as 'Tipo', p.nome as 'Produto', 
+                   s.motivo as 'Meu Motivo', s.status as 'Status', 
+                   COALESCE(s.resposta_admin, 'Aguardando análise') as 'Resposta da Administração' 
+            FROM solicitacoes_ajuste s 
+            JOIN movimentacoes m ON s.movimentacao_id = m.id 
+            JOIN produtos p ON m.sku = p.sku 
+            WHERE s.solicitante = ? 
+            ORDER BY s.id DESC
+        """, conn, params=(st.session_state["usuario"],))
         conn.close()
 
         if not df_notif.empty:
@@ -615,7 +628,7 @@ if st.session_state["perfil"] == "Admin":
                         st.rerun()
 
         with tab_p4:
-            st.subheader("🗑️ Zerar Estoque")
+            st.subheader("🗑️️ Zerar Estoque")
             conn = get_connection()
             df_z = pd.read_sql_query("SELECT sku, nome, qtd_estoque FROM produtos", conn)
             conn.close()
