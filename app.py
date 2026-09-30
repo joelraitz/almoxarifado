@@ -519,7 +519,7 @@ with aba_rel:
 with aba_ajuste:
     col_aj_title, col_aj_btn = st.columns([4, 1])
     with col_aj_title:
-        st.subheader("⚠️️ Correção e Estorno de Lançamentos")
+        st.subheader("⚠️ Correção e Estorno de Lançamentos")
     with col_aj_btn:
         if st.button("🔄 Atualizar Tabela", key="btn_ref_ajuste", use_container_width=True):
             st.rerun()
@@ -779,14 +779,14 @@ if st.session_state["perfil"] == "Admin":
             conn.close()
 
             if not df_estoque_atual.empty:
-                tipo_zeragem = st.radio("Escolha o modo de zeragem", ["Zerar Estoque de um Produto Específico", "⚠️️ Zerar o Estoque de TODOS os Produtos"], horizontal=True)
+                tipo_zeragem = st.radio("Escolha o modo de zeragem", ["Zerar Estoque de um Produto Específico", "⚠️ Zerar o Estoque de TODOS os Produtos"], horizontal=True, key="radio_tipo_zeragem")
 
                 if tipo_zeragem == "Zerar Estoque de um Produto Específico":
                     opcoes_zero = {f"{r['sku']} - {r['nome']} (Estoque Atual: {r['qtd_estoque']})": r['sku'] for _, r in df_estoque_atual.iterrows()}
                     prod_zero_sel = st.selectbox("Selecione o Produto", list(opcoes_zero.keys()), key="sb_zero_prod")
                     sku_a_zerar = opcoes_zero[prod_zero_sel]
 
-                    if st.button("Zerar Estoque deste Produto", type="primary", use_container_width=True):
+                    if st.button("🗑️ Zerar Estoque deste Produto", type="primary", use_container_width=True, key="btn_zerar_individual"):
                         conn = get_connection()
                         c = conn.cursor()
                         c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (sku_a_zerar,))
@@ -806,34 +806,31 @@ if st.session_state["perfil"] == "Admin":
                         st.rerun()
                 else:
                     st.warning("⚠️ **Atenção:** Esta ação colocará a quantidade em estoque de **todos** os produtos cadastrados para 0 (zero).")
-                    
-                    with st.form("form_zerar_geral"):
-                        confirma_geral = st.checkbox("Estou ciente e desejo zerar o estoque de todo o almoxarifado")
-                        btn_exec_geral = st.form_submit_button("⚠️ Zerar TODO O ESTOQUE do Sistema", type="primary", use_container_width=True)
+                    confirma_geral = st.checkbox("Estou ciente e desejo zerar o estoque de todo o almoxarifado", key="chk_confirma_geral")
 
-                        if btn_exec_geral:
-                            if confirma_geral:
-                                conn = get_connection()
-                                c = conn.cursor()
-                                prods_com_est = c.execute("SELECT sku, qtd_estoque FROM produtos WHERE qtd_estoque > 0").fetchall()
-                                for s_sku, s_qtd in prods_com_est:
-                                    c.execute("""
-                                        INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
-                                        VALUES (?, 'Saída', ?, 'Zeragem geral do almoxarifado pelo Admin', ?, ?, 'Concluido')
-                                    """, (s_sku, s_qtd, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
-                                
-                                c.execute("UPDATE produtos SET qtd_estoque = 0")
-                                conn.commit()
-                                conn.close()
-                                st.success("🧹 Operação concluída com sucesso! Todo o estoque do sistema foi zerado.")
-                                st.balloons()
-                                st.rerun()
-                            else:
-                                st.error("Marque a caixinha de confirmação acima para prosseguir com a zeragem total.")
+                    if st.button("⚠️ Zerar TODO O ESTOQUE do Sistema", type="primary", use_container_width=True, key="btn_zerar_tudo"):
+                        if confirma_geral:
+                            conn = get_connection()
+                            c = conn.cursor()
+                            prods_com_est = c.execute("SELECT sku, qtd_estoque FROM produtos WHERE qtd_estoque > 0").fetchall()
+                            for s_sku, s_qtd in prods_com_est:
+                                c.execute("""
+                                    INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
+                                    VALUES (?, 'Saída', ?, 'Zeragem geral do almoxarifado pelo Admin', ?, ?, 'Concluido')
+                                """, (s_sku, s_qtd, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
+                            
+                            c.execute("UPDATE produtos SET qtd_estoque = 0")
+                            conn.commit()
+                            conn.close()
+                            st.success("🧹 Operação concluída com sucesso! Todo o estoque do sistema foi zerado.")
+                            st.balloons()
+                            st.rerun()
+                        else:
+                            st.error("⚠️ Marque a caixinha de confirmação acima para prosseguir com a zeragem total.")
             else:
                 st.info("Nenhum produto cadastrado no sistema.")
 
-        # Sub-aba 5: Importação em Lote via CSV/Excel com atualização robusta
+        # Sub-aba 5: Importação em Lote via CSV/Excel
         with tab_p5:
             st.write("Envie uma planilha com os produtos para cadastrar múltiplos itens de uma só vez.")
             
