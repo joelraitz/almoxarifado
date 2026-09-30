@@ -292,7 +292,7 @@ perfil_atual = st.session_state["perfil"]
 if perfil_atual == "Admin":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
     label_correcoes = "🛠️ Correções / Estornos (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Correções / Estornos"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️️ Categorias", "👥 Gestão de Utilizadores"])
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 elif perfil_atual == "Supervisor":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
@@ -301,7 +301,7 @@ elif perfil_atual == "Supervisor":
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_cat = abas
 else:
     num_notif = contar_notificacoes_operador(st.session_state["usuario"])
-    label_solic_op = "🛠️ Solicitar Correção (🔔 " + str(num_notif) + ")" if num_notif > 0 else "🛠️ Solicitar Correção"
+    label_solic_op = "🛠️️ Solicitar Correção (🔔 " + str(num_notif) + ")" if num_notif > 0 else "🛠️ Solicitar Correção"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Meus Relatórios", label_solic_op])
     aba_dash, aba_mov, aba_rel, aba_ajuste = abas
 
@@ -390,17 +390,21 @@ with aba_mov:
 with aba_rel:
     if perfil_atual in ["Admin", "Supervisor"]:
         st.subheader("📈 Relatórios Gerais Avançados e Formalização por Período")
+        lista_modelos_rel = [
+            "Relatório Geral de Movimentações (Entradas e Saídas)",
+            "Relatório Analítico de Entradas",
+            "Relatório Analítico de Saídas",
+            "Relatório de Itens Críticos / Abaixo do Mínimo"
+        ]
+        if perfil_atual == "Admin":
+            lista_modelos_rel.append("Relatório de Auditoria / Ações Gerais entre Utilizadores")
     else:
         st.subheader("📈 Meus Relatórios de Lançamentos (" + str(st.session_state['usuario']) + ")")
-    
-    lista_modelos_rel = [
-        "Relatório Geral de Movimentações (Entradas e Saídas)",
-        "Relatório Analítico de Entradas",
-        "Relatório Analítico de Saídas",
-        "Relatório de Itens Críticos / Abaixo do Mínimo"
-    ]
-    if perfil_atual == "Admin":
-        lista_modelos_rel.append("Relatório de Auditoria / Ações Gerais entre Utilizadores")
+        lista_modelos_rel = [
+            "Meus Lançamentos (Entradas e Saídas)",
+            "Minhas Entradas",
+            "Minhas Saídas"
+        ]
 
     tipo_relatorio_op = st.selectbox("Selecione o Modelo de Relatório", lista_modelos_rel)
 
@@ -441,29 +445,40 @@ with aba_rel:
     conn = get_connection()
     base_query = "SELECT m.id as 'ID', m.data as 'Data', m.tipo as 'Tipo', m.sku as 'SKU', p.nome as 'Produto', m.quantidade as 'Qtd', m.usuario as 'Usuário', m.descricao as 'Descrição', m.status as 'Status' FROM movimentacoes m JOIN produtos p ON m.sku = p.sku"
     
-    if "Auditoria" in tipo_relatorio_op:
-        nome_arquivo_pdf = "relatorio_de_auditoria.pdf"
-        q_audit = "SELECT s.id as 'ID Sol.', s.data_solicitacao as 'Data Solicitação', s.solicitante as 'Operador', s.destinatario as 'Destinado a', s.motivo as 'Motivo', s.status as 'Status', COALESCE(s.avaliador, 'Não avaliado') as 'Avaliador', COALESCE(s.resposta_admin, '-') as 'Resposta' FROM solicitacoes_ajuste s WHERE s.data_solicitacao BETWEEN ? AND ? ORDER BY s.id DESC"
-        df_m = pd.read_sql_query(q_audit, conn, params=(str_inicio, str_fim))
-    elif "Entradas" in tipo_relatorio_op:
-        nome_arquivo_pdf = "relatorio_analitico_entradas.pdf"
-        q = base_query + " WHERE m.tipo = 'Entrada' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
-        df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
-    elif "Saídas" in tipo_relatorio_op:
-        nome_arquivo_pdf = "relatorio_analitico_saidas.pdf"
-        q = base_query + " WHERE m.tipo = 'Saída' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
-        df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
-    elif "Críticos" in tipo_relatorio_op:
-        nome_arquivo_pdf = "relatorio_itens_criticos.pdf"
-        df_m = pd.read_sql_query("SELECT sku as 'SKU', nome as 'Produto', categoria as 'Categoria', qtd_estoque as 'Qtd Atual', qtd_minima as 'Qtd Mínima', preco_unitario as 'Preço' FROM produtos WHERE qtd_estoque <= qtd_minima", conn)
+    if perfil_atual == "Operador":
+        usuario_atual = st.session_state["usuario"]
+        if "Entradas" in tipo_relatorio_op:
+            nome_arquivo_pdf = "meus_relatorios_entradas.pdf"
+            q = base_query + " WHERE m.usuario = ? AND m.tipo = 'Entrada' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
+            df_m = pd.read_sql_query(q, conn, params=(usuario_atual, str_inicio, str_fim))
+        elif "Saídas" in tipo_relatorio_op:
+            nome_arquivo_pdf = "meus_relatorios_saidas.pdf"
+            q = base_query + " WHERE m.usuario = ? AND m.tipo = 'Saída' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
+            df_m = pd.read_sql_query(q, conn, params=(usuario_atual, str_inicio, str_fim))
+        else:
+            nome_arquivo_pdf = "meus_relatorios_geral.pdf"
+            q = base_query + " WHERE m.usuario = ? AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
+            df_m = pd.read_sql_query(q, conn, params=(usuario_atual, str_inicio, str_fim))
     else:
-        nome_arquivo_pdf = "relatorio_geral_movimentacoes.pdf"
-        if perfil_atual in ["Admin", "Supervisor"]:
+        if "Auditoria" in tipo_relatorio_op:
+            nome_arquivo_pdf = "relatorio_de_auditoria.pdf"
+            q_audit = "SELECT s.id as 'ID Sol.', s.data_solicitacao as 'Data Solicitação', s.solicitante as 'Operador', s.destinatario as 'Destinado a', s.motivo as 'Motivo', s.status as 'Status', COALESCE(s.avaliador, 'Não avaliado') as 'Avaliador', COALESCE(s.resposta_admin, '-') as 'Resposta' FROM solicitacoes_ajuste s WHERE s.data_solicitacao BETWEEN ? AND ? ORDER BY s.id DESC"
+            df_m = pd.read_sql_query(q_audit, conn, params=(str_inicio, str_fim))
+        elif "Entradas" in tipo_relatorio_op:
+            nome_arquivo_pdf = "relatorio_analitico_entradas.pdf"
+            q = base_query + " WHERE m.tipo = 'Entrada' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
+            df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
+        elif "Saídas" in tipo_relatorio_op:
+            nome_arquivo_pdf = "relatorio_analitico_saidas.pdf"
+            q = base_query + " WHERE m.tipo = 'Saída' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
+            df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
+        elif "Críticos" in tipo_relatorio_op:
+            nome_arquivo_pdf = "relatorio_itens_criticos.pdf"
+            df_m = pd.read_sql_query("SELECT sku as 'SKU', nome as 'Produto', categoria as 'Categoria', qtd_estoque as 'Qtd Atual', qtd_minima as 'Qtd Mínima', preco_unitario as 'Preço' FROM produtos WHERE qtd_estoque <= qtd_minima", conn)
+        else:
+            nome_arquivo_pdf = "relatorio_geral_movimentacoes.pdf"
             q = base_query + " WHERE m.data BETWEEN ? AND ? ORDER BY m.id DESC"
             df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
-        else:
-            q = base_query + " WHERE m.usuario = ? AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
-            df_m = pd.read_sql_query(q, conn, params=(st.session_state["usuario"], str_inicio, str_fim))
     
     conn.close()
 
@@ -659,12 +674,55 @@ if perfil_atual == "Admin":
                     st.rerun()
 
         with tab_p5:
-            st.subheader("📥 Importação em Lote por Planilha")
+            st.subheader("📥 Importação e Atualização em Lote por Planilha")
             df_mod = pd.DataFrame([
                 {"sku": "ALM-001", "nome": "Papel Sulfite A4 75g", "categoria": "Consumíveis", "minimo": 10, "preco": 25.5, "quantidade": 200},
                 {"sku": "ALM-002", "nome": "Caneta Esferográfica Azul", "categoria": "Escritório", "minimo": 20, "preco": 1.56, "quantidade": 200}
             ])
             st.download_button("Baixar Modelo CSV Exato", data=df_mod.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig'), file_name="modelo_almoxarifado.csv", mime="text/csv")
+            
+            st.divider()
+            uploaded_file = st.file_uploader("Carregar arquivo de inventário (CSV ou Excel)", type=["csv", "xlsx", "xls"])
+            if uploaded_file is not None:
+                try:
+                    if uploaded_file.name.endswith('.csv'):
+                        df_upload = pd.read_csv(uploaded_file, sep=None, engine='python')
+                    else:
+                        df_upload = pd.read_excel(uploaded_file)
+                    
+                    st.write("Pré-visualização dos dados carregados:")
+                    st.dataframe(df_upload.head(), use_container_width=True)
+
+                    if st.button("📥 Processar e Inserir no Almoxarifado", type="primary"):
+                        conn = get_connection()
+                        c = conn.cursor()
+                        sucessos = 0
+                        for _, row in df_upload.iterrows():
+                            sku = str(row.get('sku', '')).strip()
+                            nome = str(row.get('nome', '')).strip()
+                            cat = str(row.get('categoria', 'Geral')).strip()
+                            minimo = int(row.get('minimo', 5))
+                            preco = float(row.get('preco', 0.0))
+                            qtd = int(row.get('quantidade', 0))
+
+                            if sku and nome:
+                                c.execute("""
+                                    INSERT INTO produtos (sku, nome, categoria, qtd_estoque, qtd_minima, preco_unitario)
+                                    VALUES (?, ?, ?, ?, ?, ?)
+                                    ON CONFLICT(sku) DO UPDATE SET 
+                                        nome=excluded.nome, 
+                                        categoria=excluded.categoria, 
+                                        qtd_estoque=excluded.qtd_estoque, 
+                                        qtd_minima=excluded.qtd_minima, 
+                                        preco_unitario=excluded.preco_unitario
+                                """, (sku, nome, cat, qtd, minimo, preco))
+                                sucessos += 1
+                        conn.commit()
+                        conn.close()
+                        st.success(f"✅ {sucessos} produtos importados/atualizados com sucesso!")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao ler o ficheiro: {e}")
 
     with aba_cat:
         st.subheader("🏷️ Categorias")
