@@ -301,7 +301,7 @@ elif perfil_atual == "Supervisor":
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_cat = abas
 else:
     num_notif = contar_notificacoes_operador(st.session_state["usuario"])
-    label_solic_op = "🛠️️ Solicitar Correção (🔔 " + str(num_notif) + ")" if num_notif > 0 else "🛠️ Solicitar Correção"
+    label_solic_op = "🛠️ Solicitar Correção (🔔 " + str(num_notif) + ")" if num_notif > 0 else "🛠️ Solicitar Correção"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Meus Relatórios", label_solic_op])
     aba_dash, aba_mov, aba_rel, aba_ajuste = abas
 
@@ -712,15 +712,14 @@ if perfil_atual == "Admin":
                                     ON CONFLICT(sku) DO UPDATE SET 
                                         nome=excluded.nome, 
                                         categoria=excluded.categoria, 
-                                        qtd_estoque=excluded.qtd_estoque, 
+                                        qtd_estoque=produtos.qtd_estoque + excluded.qtd_estoque, 
                                         qtd_minima=excluded.qtd_minima, 
                                         preco_unitario=excluded.preco_unitario
                                 """, (sku, nome, cat, qtd, minimo, preco))
                                 sucessos += 1
                         conn.commit()
                         conn.close()
-                        st.success(f"✅ {sucessos} produtos importados/atualizados com sucesso!")
-                        st.rerun()
+                        st.success(f"✅ {sucessos} produtos importados e somados ao estoque atual com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao ler o ficheiro: {e}")
 
