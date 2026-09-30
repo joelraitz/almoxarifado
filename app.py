@@ -663,7 +663,7 @@ if perfil_atual == "Admin":
 
             else:
                 conn.close()
-                st.warning("⚠️ Atenção: Esta ação vai zerar o estoque de **todos** os produtos cadastrados no sistema.")
+                st.warning("⚠️️ Atenção: Esta ação vai zerar o estoque de **todos** os produtos cadastrados no sistema.")
                 if st.button("Zeragem Geral em Lote (Todos os Produtos)", type="primary"):
                     conn = get_connection()
                     c = conn.cursor()
@@ -703,23 +703,38 @@ if perfil_atual == "Admin":
                             cat = str(row.get('categoria', 'Geral')).strip()
                             minimo = int(row.get('minimo', 5))
                             preco = float(row.get('preco', 0.0))
-                            qtd = int(row.get('quantidade', 0))
+                            qtd_upload = int(row.get('quantidade', 0))
 
                             if sku and nome:
+                                # Verifica se o produto já existe para somar corretamente o estoque
+                                c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (sku,))
+                                res_prod = c.fetchone()
+                                
+                                if res_prod:
+                                    qtd_existente = res_prod[0]
+                                    nova_qtd = qtd_existente + qtd_upload
+                                    c.execute("""
+                                        UPDATE produtos 
+                                        SET nome = ?, categoria = ?, qtd_estoque = ?, qtd_minima = ?, preco_unitario = ? 
+                                        WHERE sku = ?
+                                    """, (nome, cat, nova_qtd, minimo, preco, sku))
+                                else:
+                                    c.execute("""
+                                        INSERT INTO produtos (sku, nome, categoria, qtd_estoque, qtd_minima, preco_unitario)
+                                        VALUES (?, ?, ?, ?, ?, ?)
+                                    """, (sku, nome, cat, qtd_upload, minimo, preco))
+                                
+                                # Registra também a movimentação de entrada em lote
                                 c.execute("""
-                                    INSERT INTO produtos (sku, nome, categoria, qtd_estoque, qtd_minima, preco_unitario)
-                                    VALUES (?, ?, ?, ?, ?, ?)
-                                    ON CONFLICT(sku) DO UPDATE SET 
-                                        nome=excluded.nome, 
-                                        categoria=excluded.categoria, 
-                                        qtd_estoque=produtos.qtd_estoque + excluded.qtd_estoque, 
-                                        qtd_minima=excluded.qtd_minima, 
-                                        preco_unitario=excluded.preco_unitario
-                                """, (sku, nome, cat, qtd, minimo, preco))
+                                    INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
+                                    VALUES (?, 'Entrada', ?, 'Importação em lote via planilha', ?, ?, 'Concluido')
+                                """, (sku, qtd_upload, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
+                                
                                 sucessos += 1
+
                         conn.commit()
                         conn.close()
-                        st.success(f"✅ {sucessos} produtos importados e somados ao estoque atual com sucesso!")
+                        st.success(f"✅ {sucessos} produtos importados e somados ao estoque atual com sucesso! A página está pronta para novos uploads.")
                 except Exception as e:
                     st.error(f"Erro ao ler o ficheiro: {e}")
 
