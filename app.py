@@ -14,12 +14,15 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 # Configuração responsiva para Celular/Desktop
 st.set_page_config(page_title="Almoxarifado Pro", page_icon="📦", layout="wide", initial_sidebar_state="collapsed")
 
+# Limpa o cache do Streamlit para garantir dados atualizados a cada execução
+st.cache_data.clear()
+
 # CSS para otimização mobile
 st.markdown("""
     
 """, unsafe_allow_html=True)
 
-# --- BANCO DE DADOS E SEGURANÇA ROBUSTA ---
+# --- BANCO DE DADOS E SEGURANÇA ---
 DB_FILE = "almoxarifado.db"
 
 def hash_senha(senha):
@@ -34,7 +37,6 @@ def init_db():
     conn = get_connection()
     c = conn.cursor()
     
-    # Tabela de Usuários
     c.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             username TEXT PRIMARY KEY,
@@ -46,14 +48,12 @@ def init_db():
         )
     """)
     
-    # Tabela de Categorias
     c.execute("""
         CREATE TABLE IF NOT EXISTS categorias (
             nome TEXT PRIMARY KEY
         )
     """)
     
-    # Tabela de Produtos
     c.execute("""
         CREATE TABLE IF NOT EXISTS produtos (
             sku TEXT PRIMARY KEY,
@@ -65,7 +65,6 @@ def init_db():
         )
     """)
     
-    # Tabela de Movimentações
     c.execute("""
         CREATE TABLE IF NOT EXISTS movimentacoes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,7 +78,6 @@ def init_db():
         )
     """)
     
-    # Tabela de Solicitações de Ajuste / Estorno
     c.execute("""
         CREATE TABLE IF NOT EXISTS solicitacoes_ajuste (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,12 +89,10 @@ def init_db():
         )
     """)
 
-    # Categorias padrão
     c.execute("SELECT count(*) FROM categorias")
     if c.fetchone()[0] == 0:
         c.executemany("INSERT OR IGNORE INTO categorias VALUES (?)", [('Ferramentas',), ('EPIs',), ('Consumíveis',), ('Outros',), ('Escritório',), ('Limpeza',), ('Elétrica',), ('Hidráulica',)])
 
-    # Usuário admin padrão
     c.execute("SELECT * FROM usuarios WHERE username = 'admin'")
     if not c.fetchone():
         c.execute("""
@@ -468,7 +464,7 @@ if st.session_state["perfil"] == "Admin":
         st.subheader("📝 Gestão e Cadastro de Produtos")
         
         tab_p1, tab_p2, tab_p3, tab_p4, tab_p5 = st.tabs([
-            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha"
+            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️️ Zerar Estoques", "📥 Importar Planilha"
         ])
         
         with tab_p1:
@@ -505,7 +501,7 @@ if st.session_state["perfil"] == "Admin":
                     c.execute("UPDATE produtos SET qtd_estoque = 0 WHERE sku = ?", (sku_z,))
                     conn.commit()
                     conn.close()
-                    st.success(f"Estoque do SKU {sku_z} zerado com sucesso!")
+                    st.success(f"✅ Confirmação: O estoque do produto SKU {sku_z} foi totalmente zerado com sucesso!")
                     st.balloons()
                     st.rerun()
 
@@ -516,7 +512,7 @@ if st.session_state["perfil"] == "Admin":
                     c.execute("UPDATE produtos SET qtd_estoque = 0")
                     conn.commit()
                     conn.close()
-                    st.success("Todo o estoque do sistema foi zerado!")
+                    st.success("✅ Confirmação: Todo o estoque do sistema foi zerado com sucesso!")
                     st.balloons()
                     st.rerun()
             else:
@@ -564,7 +560,7 @@ if st.session_state["perfil"] == "Admin":
 
                     conn.commit()
                     conn.close()
-                    st.success(f"Importação concluída! {count} itens processados.")
+                    st.success(f"✅ Confirmação: Importação concluída! {count} itens processados e estoque atualizado no Dashboard.")
                     st.session_state["up_key"] += 1
                     st.rerun()
 
