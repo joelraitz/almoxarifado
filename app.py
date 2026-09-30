@@ -93,7 +93,7 @@ def init_db():
     try:
         c.execute("ALTER TABLE solicitacoes_ajuste ADD COLUMN resposta_admin TEXT")
     except sqlite3.OperationalError:
-        pass # Coluna já existe
+        pass
 
     c.execute("SELECT count(*) FROM categorias")
     if c.fetchone()[0] == 0:
@@ -302,11 +302,18 @@ if st.sidebar.button("🚪 Sair / Logout", use_container_width=True):
 # --- ESTRUTURA PRINCIPAL ---
 st.title("📦 Almoxarifado Inteligente")
 
-if st.session_state["perfil"] == "Admin":
+perfil_atual = st.session_state["perfil"]
+
+if perfil_atual == "Admin":
     num_pendentes = contar_solicitacoes_pendentes_admin()
     label_correcoes = f"🛠️ Correções / Estornos (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️ Correções / Estornos"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
+elif perfil_atual == "Supervisor":
+    num_pendentes = contar_solicitacoes_pendentes_admin()
+    label_correcoes = f"🛠️ Aprovar Correções (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️ Aprovar Correções"
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Gerais", label_correcoes, "🏷️ Categorias"])
+    aba_dash, aba_mov, aba_rel, aba_ajuste, aba_cat = abas
 else:
     num_notif = contar_notificacoes_operador(st.session_state["usuario"])
     label_solic_op = f"🛠️ Solicitar Correção (🔔 {num_notif})" if num_notif > 0 else "🛠️ Solicitar Correção"
@@ -405,8 +412,8 @@ with aba_mov:
 
 # --- ABA RELATÓRIOS ---
 with aba_rel:
-    if st.session_state["perfil"] == "Admin":
-        st.subheader("📈 Relatórios Avançados e Formalização por Período")
+    if perfil_atual in ["Admin", "Supervisor"]:
+        st.subheader("📈 Relatórios Gerais Avançados e Formalização por Período")
     else:
         st.subheader(f"📈 Meus Relatórios de Lançamentos ({st.session_state['usuario']})")
     
@@ -469,7 +476,7 @@ with aba_rel:
         JOIN produtos p ON m.sku = p.sku 
     """
     
-    if st.session_state["perfil"] == "Admin":
+    if perfil_atual in ["Admin", "Supervisor"]:
         if "Entradas" in tipo_relatorio_op:
             q = base_query + " WHERE m.tipo = 'Entrada' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
             df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
@@ -512,7 +519,7 @@ with aba_rel:
 
 # --- ABA CORREÇÃO / APROVAÇÃO E NOTIFICAÇÕES ---
 with aba_ajuste:
-    if st.session_state["perfil"] == "Admin":
+    if perfil_atual in ["Admin", "Supervisor"]:
         st.subheader("⚠️ Gestão e Aprovação de Solicitações de Correção")
         
         conn = get_connection()
@@ -525,8 +532,8 @@ with aba_ajuste:
             
             with st.form("form_aprova_detalhado"):
                 sid = st.selectbox("Selecione o ID da Solicitação para Avaliar", df_sol["ID_Solicitacao"].tolist())
-                acao = st.radio("Decisão Administrativa", ["Aprovar Correção", "Rejeitar Correção"], horizontal=True)
-                resp_admin = st.text_area("Justificativa / Descrição do Administrador (Enviada como notificação ao operador)")
+                acao = st.radio("Decisão de Supervisão / Administração", ["Aprovar Correção", "Rejeitar Correção"], horizontal=True)
+                resp_admin = st.text_area("Justificativa / Descrição (Enviada como notificação ao operador)")
                 
                 if st.form_submit_button("💾 Processar e Notificar Operador", use_container_width=True):
                     conn = get_connection()
@@ -553,7 +560,7 @@ with aba_ajuste:
     else:
         # Painel do Operador para solicitar e acompanhar notificações de resposta
         st.subheader("🛠️ Minhas Solicitações e Notificações de Correção")
-        st.caption("Aqui pode acompanhar o status das suas solicitações de correção avaliadas pelos administradores.")
+        st.caption("Aqui pode acompanhar o status das suas solicitações de correção avaliadas pela supervisão/administração.")
         
         conn = get_connection()
         df_notif = pd.read_sql_query("""
@@ -585,7 +592,7 @@ with aba_ajuste:
                 mov_id_sel = st.selectbox("Selecione o ID do Lançamento para Solicitar Correção", df_minhas_mov["ID"].tolist())
                 motivo_solic = st.text_area("Motivo detalhado da solicitação (ex: Quantidade lançada incorretamente)")
                 
-                if st.form_submit_button("📨 Enviar Solicitação aos Administradores", use_container_width=True):
+                if st.form_submit_button("📨 Enviar Solicitação aos Administradores/Supervisores", use_container_width=True):
                     if motivo_solic.strip():
                         conn = get_connection()
                         c = conn.cursor()
@@ -595,14 +602,22 @@ with aba_ajuste:
                         """, (mov_id_sel, st.session_state["usuario"], motivo_solic, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                         conn.commit()
                         conn.close()
-                        st.success("✅ Solicitação enviada com sucesso aos Administradores!")
+                        st.success("✅ Solicitação enviada com sucesso!")
                         st.balloons()
                         st.rerun()
                     else:
                         st.warning("Por favor, preencha o motivo da solicitação.")
 
-# --- GESTÃO DE PRODUTOS (ADMIN) ---
-if st.session_state["perfil"] == "Admin":
+# --- ABA CATEGORIAS (SUPERVISOR) ---
+if perfil_atual == "Supervisor":
+    with aba_cat:
+        st.subheader("🏷️️ Categorias de Produtos")
+        conn = get_connection()
+        st.dataframe(pd.read_sql_query("SELECT nome FROM categorias", conn), use_container_width=True)
+        conn.close()
+
+# --- GESTÃO DE PRODUTOS E UTILIZADORES (ADMIN) ---
+if perfil_atual == "Admin":
     with aba_prod:
         st.subheader("📝 Gestão e Cadastro de Produtos")
         
@@ -628,7 +643,7 @@ if st.session_state["perfil"] == "Admin":
                         st.rerun()
 
         with tab_p4:
-            st.subheader("🗑️️ Zerar Estoque")
+            st.subheader("🗑️ Zerar Estoque")
             conn = get_connection()
             df_z = pd.read_sql_query("SELECT sku, nome, qtd_estoque FROM produtos", conn)
             conn.close()
@@ -733,13 +748,14 @@ if st.session_state["perfil"] == "Admin":
     with aba_usr:
         st.subheader("👥 Gestão de Utilizadores (Incluir, Bloquear e Remover)")
         
-        tab_u1, tab_u2 = st.tabs(["➕ Incluir Novo Utilizador", "⚙️ Gerir / Bloquear / Remover Utilizadores"])
+        tab_u1, tab_u2 = st.tabs(["➕ Incluir Novo Utilizador", "⚙️️ Gerir / Bloquear / Remover Utilizadores"])
         
         with tab_u1:
             with st.form("form_novo_user", clear_on_submit=True):
                 novo_user = st.text_input("Nome de Utilizador (Login)").strip()
                 nova_senha_user = st.text_input("Senha", type="password")
-                perfil_user = st.selectbox("Perfil de Acesso", ["Operador", "Admin"])
+                # Incluindo a opção 'Supervisor' no cadastro de novos utilizadores
+                perfil_user = st.selectbox("Perfil de Acesso", ["Operador", "Supervisor", "Admin"])
                 pergunta_sec = st.text_input("Pergunta Secreta (ex: Qual a cidade natal?)", value="Qual a cidade natal?")
                 resposta_sec = st.text_input("Resposta Secreta", type="password")
                 
@@ -791,12 +807,12 @@ if st.session_state["perfil"] == "Admin":
                             st.rerun()
 
                 with col_acao2:
-                    st.write("🗑️ **Remover Utilizador**")
+                    st.write("🗑️️ **Remover Utilizador**")
                     if st.button("Excluir Utilizador Definitivamente", type="primary", use_container_width=True):
                         if user_selecionado == "admin":
                             st.error("Não é permitido excluir o utilizador administrador principal ('admin').")
                         elif user_selecionado == st.session_state["usuario"]:
-                            st.error("Não pode excluir a sua própria conta enquanto está conectado.")
+                            st.error("Not pode excluir a sua própria conta enquanto está conectado.")
                         else:
                             conn = get_connection()
                             c = conn.cursor()
