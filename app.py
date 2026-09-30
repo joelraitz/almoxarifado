@@ -292,7 +292,7 @@ perfil_atual = st.session_state["perfil"]
 if perfil_atual == "Admin":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
     label_correcoes = "🛠️ Correções / Estornos (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Correções / Estornos"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️️ Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 elif perfil_atual == "Supervisor":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
@@ -319,7 +319,7 @@ with aba_dash:
 
     if not df_produtos.empty:
         df_produtos["status"] = df_produtos.apply(
-            lambda x: "⚠️️ CRÍTICO" if x["qtd_estoque"] <= x["qtd_minima"] else "✅ NORMAL", axis=1
+            lambda x: "⚠️ CRÍTICO" if x["qtd_estoque"] <= x["qtd_minima"] else "✅ NORMAL", axis=1
         )
 
         col1, col2 = st.columns(2)
@@ -605,26 +605,58 @@ if perfil_atual == "Admin":
                         st.rerun()
 
         with tab_p4:
-            st.subheader("🗑️ Zerar Estoque")
+            st.subheader("🗑️ Opções de Zerar Estoque")
+            modo_zerar = st.radio("Escolha o modo de zeragem:", ["Zeramento Individual (Por Produto)", "Zerar por Categoria / Grupo", "Zerar Todo o Estoque (Lote Geral)"], horizontal=True)
+
             conn = get_connection()
-            df_z = pd.read_sql_query("SELECT sku, nome, qtd_estoque FROM produtos", conn)
-            conn.close()
+            if modo_zerar == "Zeramento Individual (Por Produto)":
+                df_z = pd.read_sql_query("SELECT sku, nome, qtd_estoque FROM produtos", conn)
+                conn.close()
 
-            if not df_z.empty:
-                op_z = {str(r['sku']) + " - " + str(r['nome']) + " (Qtd: " + str(r['qtd_estoque']) + ")": r['sku'] for _, r in df_z.iterrows()}
-                sel_z = st.selectbox("Produto para Zerar", list(op_z.keys()))
-                sku_z = op_z[sel_z]
+                if not df_z.empty:
+                    op_z = {str(r['sku']) + " - " + str(r['nome']) + " (Qtd: " + str(r['qtd_estoque']) + ")": r['sku'] for _, r in df_z.iterrows()}
+                    sel_z = st.selectbox("Produto para Zerar", list(op_z.keys()))
+                    sku_z = op_z[sel_z]
 
-                if st.button("Zerar Este Produto Agora", type="primary"):
+                    if st.button("Zerar Este Produto Agora", type="primary"):
+                        conn = get_connection()
+                        c = conn.cursor()
+                        c.execute("UPDATE produtos SET qtd_estoque = 0 WHERE sku = ?", (sku_z,))
+                        conn.commit()
+                        conn.close()
+                        st.success("✅ Estoque do SKU " + sku_z + " zerado!")
+                        st.rerun()
+                else:
+                    st.info("Nenhum produto cadastrado.")
+
+            elif modo_zerar == "Zerar por Categoria / Grupo":
+                df_cat = pd.read_sql_query("SELECT nome FROM categorias", conn)
+                conn.close()
+
+                if not df_cat.empty:
+                    cat_sel = st.selectbox("Selecione a Categoria / Grupo", df_cat["nome"].tolist())
+                    if st.button("Zerar Todos os Produtos desta Categoria", type="primary"):
+                        conn = get_connection()
+                        c = conn.cursor()
+                        c.execute("UPDATE produtos SET qtd_estoque = 0 WHERE categoria = ?", (cat_sel,))
+                        conn.commit()
+                        conn.close()
+                        st.success("✅ Estoque da categoria '" + cat_sel + "' zerado com sucesso!")
+                        st.rerun()
+                else:
+                    st.info("Nenhuma categoria cadastrada.")
+
+            else:
+                conn.close()
+                st.warning("⚠️ Atenção: Esta ação vai zerar o estoque de **todos** os produtos cadastrados no sistema.")
+                if st.button("Zeragem Geral em Lote (Todos os Produtos)", type="primary"):
                     conn = get_connection()
                     c = conn.cursor()
-                    c.execute("UPDATE produtos SET qtd_estoque = 0 WHERE sku = ?", (sku_z,))
+                    c.execute("UPDATE produtos SET qtd_estoque = 0")
                     conn.commit()
                     conn.close()
-                    st.success("✅ Estoque do SKU " + sku_z + " zerado!")
+                    st.success("✅ Estoque geral zerado com sucesso!")
                     st.rerun()
-            else:
-                st.info("Nenhum produto cadastrado.")
 
         with tab_p5:
             st.subheader("📥 Importação em Lote por Planilha")
