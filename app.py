@@ -484,7 +484,7 @@ if st.session_state["perfil"] == "Admin":
                         st.rerun()
 
         with tab_p4:
-            st.subheader("🗑️ Zerar Estoque")
+            st.subheader("🗑️️ Zerar Estoque")
             conn = get_connection()
             df_z = pd.read_sql_query("SELECT sku, nome, qtd_estoque FROM produtos", conn)
             conn.close()
@@ -518,12 +518,12 @@ if st.session_state["perfil"] == "Admin":
                 st.info("Nenhum produto cadastrado.")
 
         with tab_p5:
-            st.subheader("📥 Importação em Lote por Planilha (Flexível)")
+            st.subheader("📥 Importação em Lote por Planilha (Compatível com ponto e vírgula `;` e vírgula `,`)")
             
             df_mod = pd.DataFrame([
-                {"SKU": "ALM-001", "Nome do Produto": "Papel A4", "Categoria": "Consumíveis", "Estoque Mínimo": 10, "Preço Unitário": 25.0, "Quantidade Inicial": 150}
+                {"sku": "ALM-001", "nome": "Papel A4", "categoria": "Consumíveis", "minimo": 10, "preco": 25.0, "quantidade": 150}
             ])
-            st.download_button("Baixar Modelo CSV", data=df_mod.to_csv(index=False).encode('utf-8'), file_name="modelo.csv", mime="text/csv")
+            st.download_button("Baixar Modelo CSV", data=df_mod.to_csv(index=False, sep=';').encode('utf-8-sig'), file_name="modelo.csv", mime="text/csv")
 
             if "up_key" not in st.session_state:
                 st.session_state["up_key"] = 0
@@ -532,12 +532,19 @@ if st.session_state["perfil"] == "Admin":
 
             if up_file is not None:
                 try:
+                    # Tenta ler com separador ';' primeiro, se falhar ou tiver 1 coluna, lê com ','
                     if up_file.name.endswith(".csv") or up_file.name.endswith(".txt"):
-                        df_imp = pd.read_csv(up_file)
+                        content_bytes = up_file.getvalue()
+                        try:
+                            df_imp = pd.read_csv(io.BytesIO(content_bytes), sep=';')
+                            if len(df_imp.columns) <= 1:
+                                df_imp = pd.read_csv(io.BytesIO(content_bytes), sep=',')
+                        except:
+                            df_imp = pd.read_csv(io.BytesIO(content_bytes), sep=',')
                     else:
                         df_imp = pd.read_excel(up_file)
 
-                    # Normaliza os nomes das colunas para evitar conflitos (remove espaços e converte para minúsculas)
+                    # Normaliza os nomes das colunas
                     df_imp.columns = [str(c).strip().lower() for c in df_imp.columns]
                     st.dataframe(df_imp.head(10), use_container_width=True)
 
@@ -547,20 +554,22 @@ if st.session_state["perfil"] == "Admin":
                         count = 0
                         
                         for _, row in df_imp.iterrows():
-                            # Mapeia flexivelmente as colunas independentemente de maiúsculas/minúsculas
+                            # Mapeamento ultrarrobusto para qualquer nome de coluna utilizado no arquivo CSV
                             s = str(row.get("sku", row.get("código", row.get("codigo", "")))).strip()
-                            n = str(row.get("nome do produto", row.get("nome", row.get("produto", "Produto")))).strip()
+                            n = str(row.get("nome", row.get("nome do produto", row.get("produto", "Produto")))).strip()
                             cat = str(row.get("categoria", "Geral")).strip()
-                            qmin = int(row.get("estoque mínimo", row.get("estoque minimo", 5)))
-                            preco = float(row.get("preço unitário", row.get("preco unitario", row.get("preco", 0.0))))
-                            qtd = int(row.get("quantidade inicial", row.get("quantidade", row.get("qtd", 0))))
+                            qmin = int(row.get("minimo", row.get("mínimo", row.get("estoque mínimo", row.get("estoque minimo", 5)))))
+                            preco = float(row.get("preco", row.get("preço", row.get("preço unitário", row.get("preco unitario", 0.0)))))
+                            qtd = int(row.get("quantidade", row.get("qtd", row.get("quantidade inicial", row.get("quantidade inicial", 0)))))
 
                             if s and s != "nan":
                                 c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (s,))
                                 exists = c.fetchone()
                                 if exists:
+                                    # Se já existe, atualiza os dados e soma a quantidade importada
                                     c.execute("UPDATE produtos SET nome = ?, categoria = ?, qtd_estoque = qtd_estoque + ?, qtd_minima = ?, preco_unitario = ? WHERE sku = ?", (n, cat, qtd, qmin, preco, s))
                                 else:
+                                    # Se não existe, cadastra com a quantidade inicial
                                     c.execute("INSERT INTO produtos VALUES (?, ?, ?, ?, ?, ?)", (s, n, cat, qtd, qmin, preco))
                                 
                                 if qtd > 0:
