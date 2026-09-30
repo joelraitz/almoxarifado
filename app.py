@@ -38,6 +38,7 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS produtos (sku TEXT PRIMARY KEY, nome TEXT NOT NULL, categoria TEXT, qtd_estoque INTEGER DEFAULT 0, qtd_minima INTEGER DEFAULT 5, preco_unitario REAL DEFAULT 0.0)")
     c.execute("CREATE TABLE IF NOT EXISTS movimentacoes (id INTEGER PRIMARY KEY AUTOINCREMENT, sku TEXT, tipo TEXT, quantidade INTEGER, descricao TEXT, data TEXT, usuario TEXT, status TEXT DEFAULT 'Concluido')")
     c.execute("CREATE TABLE IF NOT EXISTS solicitacoes_ajuste (id INTEGER PRIMARY KEY AUTOINCREMENT, movimentacao_id INTEGER, solicitante TEXT, destinatario TEXT, motivo TEXT, status TEXT DEFAULT 'Pendente', data_solicitacao TEXT, resposta_admin TEXT, avaliador TEXT, lido_gestor INTEGER DEFAULT 0, lido_operador INTEGER DEFAULT 0)")
+    c.execute("CREATE TABLE IF NOT EXISTS ordens_servico (id INTEGER PRIMARY KEY AUTOINCREMENT, movimentacao_id INTEGER, data_abertura TEXT, data_limite TEXT, destino TEXT, usuario_abertura TEXT, usuario_consumidor TEXT, observacoes TEXT, status TEXT DEFAULT 'Aberta')")
 
     for col_sql in [
         "ALTER TABLE solicitacoes_ajuste ADD COLUMN resposta_admin TEXT",
@@ -144,6 +145,84 @@ def gerar_pdf_relatorio(df_produtos, titulo_relatorio):
     buffer.seek(0)
     return buffer.getvalue()
 
+def gerar_pdf_ordem_servico(os_id, data_abertura, data_limite, destino, usuario_abertura, usuario_consumidor, observacoes, produto_nome, sku, tipo_mov, qtd):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    story = []
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#0f172a'), alignment=1)
+    subtitle_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#64748b'), alignment=1)
+    section_style = ParagraphStyle('SecStyle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#0f172a'), spaceBefore=10, spaceAfter=5)
+    normal_style = ParagraphStyle('NormStyle', parent=styles['Normal'], fontSize=9, leading=12)
+
+    story.append(Paragraph(f"ORDEM DE SERVIÇO DE ALMOXARIFADO — Nº {os_id:04d}", title_style))
+    story.append(Paragraph(f"Emitido em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
+    story.append(Spacer(1, 15))
+
+    data_info = [
+        [Paragraph("**Data de Abertura:**", normal_style), Paragraph(str(data_abertura), normal_style), Paragraph("**Prazo Máximo (Data Limite):**", normal_style), Paragraph(str(data_limite), normal_style)],
+        [Paragraph("**Quem Abriu (Operador):**", normal_style), Paragraph(str(usuario_abertura), normal_style), Paragraph("**Utilizador / Consumidor:**", normal_style), Paragraph(str(usuario_consumidor), normal_style)],
+        [Paragraph("**Destino do Material:**", normal_style), Paragraph(str(destino), normal_style), Paragraph("**Status da OS:**", normal_style), Paragraph("Aberta / Pendente", normal_style)]
+    ]
+    t_info = Table(data_info, colWidths=[130, 140, 150, 115])
+    t_info.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8fafc'))
+    ]))
+    story.append(t_info)
+    story.append(Spacer(1, 15))
+
+    story.append(Paragraph("Detalhes da Operação / Item Movimentado", section_style))
+    data_prod = [
+        [Paragraph("**SKU**", normal_style), Paragraph("**Produto / Material**", normal_style), Paragraph("**Tipo de Operação**", normal_style), Paragraph("**Quantidade**", normal_style)],
+        [Paragraph(str(sku), normal_style), Paragraph(str(produto_nome), normal_style), Paragraph(str(tipo_mov), normal_style), Paragraph(str(qtd), normal_style)]
+    ]
+    t_prod = Table(data_prod, colWidths=[80, 240, 110, 105])
+    t_prod.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f172a')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+    ]))
+    for i in range(len(data_prod[0])):
+        data_prod[0][i].style.textColor = colors.whitesmoke
+    story.append(t_prod)
+    story.append(Spacer(1, 15))
+
+    story.append(Paragraph("Observações e Instruções Específicas", section_style))
+    data_obs = [[Paragraph(str(observacoes) if observacoes else "Nenhuma observação informada.", normal_style)]]
+    t_obs = Table(data_obs, colWidths=[535])
+    t_obs.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+        ('TOPPADDING', (0,0), (-1,-1), 10),
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#fffbeb'))
+    ]))
+    story.append(t_obs)
+    story.append(Spacer(1, 40))
+
+    data_ass = [
+        [Paragraph("_"*40, normal_style), Paragraph("_"*40, normal_style)],
+        [Paragraph("Assinatura do Operador / Emissor", normal_style), Paragraph("Assinatura do Recebedor / Utilizador", normal_style)]
+    ]
+    t_ass = Table(data_ass, colWidths=[265, 270])
+    t_ass.setStyle(TableStyle([
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN', (0,0), (-1,-1), 'TOP')
+    ]))
+    story.append(t_ass)
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
 def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
@@ -197,6 +276,9 @@ if "modo_login" not in st.session_state:
 
 if "upload_counter" not in st.session_state:
     st.session_state["upload_counter"] = 0
+
+if "ultima_os_gerada" not in st.session_state:
+    st.session_state["ultima_os_gerada"] = None
 
 def tela_login():
     col1, col2, col3 = st.columns([1, 1.2, 1])
@@ -294,7 +376,7 @@ perfil_atual = st.session_state["perfil"]
 
 if perfil_atual == "Admin":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
-    label_correcoes = "🛠️️ Correções / Estornos (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Correções / Estornos"
+    label_correcoes = "🛠 Correções / Estornos (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Correções / Estornos"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 elif perfil_atual == "Supervisor":
@@ -329,7 +411,6 @@ with aba_dash:
         col1.metric("Total de SKUs", len(df_produtos))
         col2.metric("Itens em Estoque Crítico", int((df_produtos["status"] == "⚠️ CRÍTICO").sum()))
 
-        # Apenas Admin e Supervisor podem baixar o relatório geral na aba Dashboard
         if perfil_atual in ["Admin", "Supervisor"]:
             pdf_bytes = gerar_pdf_relatorio(df_produtos, "Estoque Geral Atual")
             
@@ -350,14 +431,39 @@ with aba_dash:
         fig_status.update_layout(margin=dict(t=20, b=20, l=20, r=20), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_status, use_container_width=True)
 
-        # A tabela detalhada abaixo fica restrita a Administradores e Supervisores
         if perfil_atual in ["Admin", "Supervisor"]:
             st.dataframe(df_produtos[['sku', 'nome', 'categoria', 'qtd_estoque', 'qtd_minima', 'status']], use_container_width=True)
     else:
         st.info("Nenhum produto cadastrado no sistema.")
 
 with aba_mov:
-    st.subheader("🔄 Lançamento de Entrada / Saída de Materiais")
+    st.subheader("🔄 Lançamento de Entrada / Saída de Materiais e Emissão de OS")
+    
+    # Se houver uma OS recém-gerada na sessão, exibe a opção de download imediato
+    if st.session_state["ultima_os_gerada"] is not None:
+        os_dados = st.session_state["ultima_os_gerada"]
+        st.success("✅ Materiais adicionados/movimentados com sucesso! Ordem de Serviço gerada.")
+        
+        pdf_os_bytes = gerar_pdf_ordem_servico(
+            os_dados['id'], os_dados['data_abertura'], os_dados['data_limite'], 
+            os_dados['destino'], os_dados['usuario_abertura'], os_dados['usuario_consumidor'], 
+            os_dados['observacoes'], os_dados['produto_nome'], os_dados['sku'], 
+            os_dados['tipo_mov'], os_dados['qtd']
+        )
+        
+        st.download_button(
+            label=f"📄 Imprimir / Baixar Ordem de Serviço (OS #{os_dados['id']:04d})",
+            data=pdf_os_bytes,
+            file_name=f"ordem_servico_{os_dados['id']:04d}.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True
+        )
+        if st.button("🔄 Fechar / Iniciar Novo Lançamento"):
+            st.session_state["ultima_os_gerada"] = None
+            st.rerun()
+        st.divider()
+
     conn = get_connection()
     prods = pd.read_sql_query("SELECT sku, nome FROM produtos ORDER BY nome ASC", conn)
     conn.close()
@@ -368,29 +474,67 @@ with aba_mov:
             item = st.selectbox("Selecione o Produto", list(opcoes.keys()))
             tipo = st.radio("Tipo de Operação", ["Entrada", "Saída"], horizontal=True)
             qtd = st.number_input("Quantidade", min_value=1, value=1, step=1)
-            descricao = st.text_input("Descrição / Observação do Lançamento")
+            
+            col_os1, col_os2 = st.columns(2)
+            with col_os1:
+                data_limite_os = st.date_input("Data Máxima (Prazo para Finalização da OS)", value=datetime.date.today() + datetime.timedelta(days=3))
+            with col_os2:
+                usuario_consumidor = st.text_input("Quem irá usar o material (Utilizador / Solicitante)").strip()
+            
+            destino_material = st.text_input("Descrição do Destino do Material (ex: Obra Setor B, Manutenção Preventiva)").strip()
+            descricao_mov = st.text_input("Observações Gerais / Descrição da Movimentação")
 
-            if st.form_submit_button("Confirmar Lançamento", use_container_width=True):
-                sku_sel = opcoes[item]
-                fator = 1 if tipo == "Entrada" else -1
-
-                conn = get_connection()
-                c = conn.cursor()
-                c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (sku_sel,))
-                qtd_atual = c.fetchone()[0]
-
-                if tipo == "Saída" and qtd_atual < qtd:
-                    st.error("Estoque insuficiente! Estoque atual: " + str(qtd_atual))
+            if st.form_submit_button("Confirmar Lançamento e Gerar OS", use_container_width=True):
+                if not usuario_consumidor or not destino_material:
+                    st.warning("Por favor, preencha o campo 'Quem irá usar o material' e o 'Destino do material'.")
                 else:
-                    c.execute("UPDATE produtos SET qtd_estoque = qtd_estoque + ? WHERE sku = ?", (int(qtd * fator), sku_sel))
-                    c.execute(
-                        "INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) VALUES (?, ?, ?, ?, ?, ?, 'Concluido')",
-                        (sku_sel, tipo, int(qtd), descricao, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"])
-                    )
-                    conn.commit()
-                    st.success("Lançamento de " + tipo + " realizado com sucesso!")
-                conn.close()
-                st.rerun()
+                    sku_sel = opcoes[item]
+                    fator = 1 if tipo == "Entrada" else -1
+
+                    conn = get_connection()
+                    c = conn.cursor()
+                    c.execute("SELECT qtd_estoque, nome FROM produtos WHERE sku = ?", (sku_sel,))
+                    res_prod = c.fetchone()
+                    qtd_atual = res_prod[0]
+                    nome_prod = res_prod[1]
+
+                    if tipo == "Saída" and qtd_atual < qtd:
+                        st.error("Estoque insuficiente! Estoque atual: " + str(qtd_atual))
+                        conn.close()
+                    else:
+                        c.execute("UPDATE produtos SET qtd_estoque = qtd_estoque + ? WHERE sku = ?", (int(qtd * fator), sku_sel))
+                        c.execute(
+                            "INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) VALUES (?, ?, ?, ?, ?, ?, 'Concluido')",
+                            (sku_sel, tipo, int(qtd), descricao_mov, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"])
+                        )
+                        mov_id = c.lastrowid
+
+                        data_abertura_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        data_limite_str = data_limite_os.strftime("%Y-%m-%d")
+
+                        c.execute(
+                            "INSERT INTO ordens_servico (movimentacao_id, data_abertura, data_limite, destino, usuario_abertura, usuario_consumidor, observacoes, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Aberta')",
+                            (mov_id, data_abertura_str, data_limite_str, destino_material, st.session_state["usuario"], usuario_consumidor, descricao_mov)
+                        )
+                        os_id = c.lastrowid
+                        conn.commit()
+                        conn.close()
+
+                        # Salva na sessão para exibir o botão de download imediato
+                        st.session_state["ultima_os_gerada"] = {
+                            "id": os_id,
+                            "data_abertura": data_abertura_str,
+                            "data_limite": data_limite_str,
+                            "destino": destino_material,
+                            "usuario_abertura": st.session_state["usuario"],
+                            "usuario_consumidor": usuario_consumidor,
+                            "observacoes": descricao_mov,
+                            "produto_nome": nome_prod,
+                            "sku": sku_sel,
+                            "tipo_mov": tipo,
+                            "qtd": qtd
+                        }
+                        st.rerun()
     else:
         st.warning("Nenhum produto cadastrado.")
 
@@ -606,7 +750,7 @@ if perfil_atual == "Admin":
     with aba_prod:
         st.subheader("📝 Gestão e Cadastro de Produtos")
         tab_p1, tab_p2, tab_p3, tab_p4, tab_p5 = st.tabs([
-            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️️ Zerar Estoques", "📥 Importar Planilha"
+            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha"
         ])
         
         with tab_p1:
