@@ -162,7 +162,7 @@ def gerar_pdf_ordem_servico(os_id, data_abertura, data_limite, destino, usuario_
 
     data_info = [
         [Paragraph("**Data de Abertura:**", normal_style), Paragraph(str(data_abertura), normal_style), Paragraph("**Prazo Máximo (Data Limite):**", normal_style), Paragraph(str(data_limite), normal_style)],
-        [Paragraph("**Quem Abriu (Operador):**", normal_style), Paragraph(str(usuario_abertura), normal_style), Paragraph("**Utilizador / Consumidor:**", normal_style), Paragraph(str(usuario_consumidor), normal_style)],
+        [Paragraph("**Quem Abriu (Operacional):**", normal_style), Paragraph(str(usuario_abertura), normal_style), Paragraph("**Utilizador / Consumidor:**", normal_style), Paragraph(str(usuario_consumidor), normal_style)],
         [Paragraph("**Destino do Material:**", normal_style), Paragraph(str(destino), normal_style), Paragraph("**Status da OS:**", normal_style), Paragraph("Aberta / Pendente", normal_style)]
     ]
     t_info = Table(data_info, colWidths=[130, 140, 150, 115])
@@ -206,11 +206,12 @@ def gerar_pdf_ordem_servico(os_id, data_abertura, data_limite, destino, usuario_
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#fffbeb'))
     ]))
     story.append(t_obs)
-    story.append(Spacer(1, 40))
+    story.append(Spacer(1, 45))
 
+    # Linhas de assinatura para Operacional e Supervisor Imediato
     data_ass = [
         [Paragraph("_"*40, normal_style), Paragraph("_"*40, normal_style)],
-        [Paragraph("Assinatura do Operador / Emissor", normal_style), Paragraph("Assinatura do Recebedor / Utilizador", normal_style)]
+        [Paragraph("**Assinatura do Operacional (Emissor)**", normal_style), Paragraph("**Assinatura do Supervisor Imediato**", normal_style)]
     ]
     t_ass = Table(data_ass, colWidths=[265, 270])
     t_ass.setStyle(TableStyle([
@@ -376,12 +377,12 @@ perfil_atual = st.session_state["perfil"]
 
 if perfil_atual == "Admin":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
-    label_correcoes = "🛠 Correções / Estornos (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Correções / Estornos"
+    label_correcoes = "🛠️ Correções / Estornos (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Correções / Estornos"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 elif perfil_atual == "Supervisor":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
-    label_correcoes = "🛠️ Aprovar Correções (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Aprovar Correções"
+    label_correcoes = "🛠️️ Aprovar Correções (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Aprovar Correções"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Gerais", label_correcoes, "🏷️ Categorias"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_cat = abas
 else:
@@ -439,7 +440,6 @@ with aba_dash:
 with aba_mov:
     st.subheader("🔄 Lançamento de Entrada / Saída de Materiais e Emissão de OS")
     
-    # Se houver uma OS recém-gerada na sessão, exibe a opção de download imediato
     if st.session_state["ultima_os_gerada"] is not None:
         os_dados = st.session_state["ultima_os_gerada"]
         st.success("✅ Materiais adicionados/movimentados com sucesso! Ordem de Serviço gerada.")
@@ -520,7 +520,6 @@ with aba_mov:
                         conn.commit()
                         conn.close()
 
-                        # Salva na sessão para exibir o botão de download imediato
                         st.session_state["ultima_os_gerada"] = {
                             "id": os_id,
                             "data_abertura": data_abertura_str,
@@ -741,7 +740,7 @@ with aba_ajuste:
 
 if perfil_atual == "Supervisor":
     with aba_cat:
-        st.subheader("🏷️ Categorias de Produtos")
+        st.subheader("🏷️️ Categorias de Produtos")
         conn = get_connection()
         st.dataframe(pd.read_sql_query("SELECT nome FROM categorias", conn), use_container_width=True)
         conn.close()
@@ -750,7 +749,7 @@ if perfil_atual == "Admin":
     with aba_prod:
         st.subheader("📝 Gestão e Cadastro de Produtos")
         tab_p1, tab_p2, tab_p3, tab_p4, tab_p5 = st.tabs([
-            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha"
+            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️️ Zerar Estoques", "📥 Importar Planilha"
         ])
         
         with tab_p1:
