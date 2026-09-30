@@ -11,7 +11,6 @@ from reportlab.lib.pagesizes import A4
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-# Configuração responsiva e moderna
 st.set_page_config(
     page_title="Almoxarifado Inteligente Pro", 
     page_icon="📦", 
@@ -21,12 +20,10 @@ st.set_page_config(
 
 st.cache_data.clear()
 
-# --- DESIGN SYSTEM MODERNO E CORPORATIVO (CSS) ---
 st.markdown("""
     
 """, unsafe_allow_html=True)
 
-# --- BANCO DE DADOS E SEGURANÇA ROBUSTA ---
 DB_FILE = "almoxarifado.db"
 
 def hash_senha(senha):
@@ -161,7 +158,6 @@ def marcar_como_lido_operador(usuario):
     conn.commit()
     conn.close()
 
-# --- GERADORES DE RELATÓRIO PDF COM AJUSTE DE CÉLULAS E PARÁGRAFOS ---
 def gerar_pdf_relatorio(df_produtos, titulo_relatorio):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
@@ -249,7 +245,6 @@ def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
     buffer.seek(0)
     return buffer.getvalue()
 
-# --- TELA DE LOGIN ---
 if "logado" not in st.session_state:
     st.session_state["logado"] = False
     st.session_state["usuario"] = None
