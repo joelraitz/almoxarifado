@@ -152,9 +152,10 @@ def gerar_pdf_ordem_servico(os_id, data_abertura, data_limite, destino, usuario_
     styles = getSampleStyleSheet()
 
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#0f172a'), alignment=1)
-    subtitle_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#64748b'), alignment=1)
+    subtitle_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#334155'), alignment=1)
     section_style = ParagraphStyle('SecStyle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#0f172a'), spaceBefore=10, spaceAfter=5)
-    normal_style = ParagraphStyle('NormStyle', parent=styles['Normal'], fontSize=9, leading=12)
+    normal_style = ParagraphStyle('NormStyle', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#0f172a'))
+    header_table_style = ParagraphStyle('HeadTableStyle', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.whitesmoke, fontName='Helvetica-Bold')
 
     story.append(Paragraph(f"ORDEM DE SERVIÇO DE ALMOXARIFADO — Nº {os_id:04d}", title_style))
     story.append(Paragraph(f"Emitido em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", subtitle_style))
@@ -178,20 +179,17 @@ def gerar_pdf_ordem_servico(os_id, data_abertura, data_limite, destino, usuario_
 
     story.append(Paragraph("Detalhes da Operação / Item Movimentado", section_style))
     data_prod = [
-        [Paragraph("**SKU**", normal_style), Paragraph("**Produto / Material**", normal_style), Paragraph("**Tipo de Operação**", normal_style), Paragraph("**Quantidade**", normal_style)],
+        [Paragraph("SKU", header_table_style), Paragraph("Produto / Material", header_table_style), Paragraph("Tipo de Operação", header_table_style), Paragraph("Quantidade", header_table_style)],
         [Paragraph(str(sku), normal_style), Paragraph(str(produto_nome), normal_style), Paragraph(str(tipo_mov), normal_style), Paragraph(str(qtd), normal_style)]
     ]
     t_prod = Table(data_prod, colWidths=[80, 240, 110, 105])
     t_prod.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f172a')),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
         ('BOTTOMPADDING', (0,0), (-1,-1), 6),
         ('TOPPADDING', (0,0), (-1,-1), 6),
     ]))
-    for i in range(len(data_prod[0])):
-        data_prod[0][i].style.textColor = colors.whitesmoke
     story.append(t_prod)
     story.append(Spacer(1, 15))
 
@@ -208,7 +206,6 @@ def gerar_pdf_ordem_servico(os_id, data_abertura, data_limite, destino, usuario_
     story.append(t_obs)
     story.append(Spacer(1, 45))
 
-    # Linhas de assinatura para Operacional e Supervisor Imediato
     data_ass = [
         [Paragraph("_"*40, normal_style), Paragraph("_"*40, normal_style)],
         [Paragraph("**Assinatura do Operacional (Emissor)**", normal_style), Paragraph("**Assinatura do Supervisor Imediato**", normal_style)]
@@ -382,7 +379,7 @@ if perfil_atual == "Admin":
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 elif perfil_atual == "Supervisor":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
-    label_correcoes = "🛠️️ Aprovar Correções (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Aprovar Correções"
+    label_correcoes = "🛠️ Aprovar Correções (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Aprovar Correções"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Gerais", label_correcoes, "🏷️ Categorias"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_cat = abas
 else:
@@ -740,7 +737,7 @@ with aba_ajuste:
 
 if perfil_atual == "Supervisor":
     with aba_cat:
-        st.subheader("🏷️️ Categorias de Produtos")
+        st.subheader("🏷️ Categorias de Produtos")
         conn = get_connection()
         st.dataframe(pd.read_sql_query("SELECT nome FROM categorias", conn), use_container_width=True)
         conn.close()
@@ -749,7 +746,7 @@ if perfil_atual == "Admin":
     with aba_prod:
         st.subheader("📝 Gestão e Cadastro de Produtos")
         tab_p1, tab_p2, tab_p3, tab_p4, tab_p5 = st.tabs([
-            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️️ Zerar Estoques", "📥 Importar Planilha"
+            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha"
         ])
         
         with tab_p1:
