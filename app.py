@@ -399,25 +399,20 @@ with aba_rel:
     if periodo == "Hoje (Dia)":
         dt_inicio = data_hoje
         dt_fim = data_hoje
-        label_periodo = f"Dia {data_hoje.strftime('%d/%m/%Y')}"
     elif periodo == "Última Semana (7 dias)":
         dt_inicio = data_hoje - datetime.timedelta(days=7)
         dt_fim = data_hoje
-        label_periodo = f"Semana"
     elif periodo == "Mês Atual":
         dt_inicio = datetime.date(data_hoje.year, data_hoje.month, 1)
         dt_fim = data_hoje
-        label_periodo = f"Mês"
     elif periodo == "Ano Atual":
         dt_inicio = datetime.date(data_hoje.year, 1, 1)
         dt_fim = data_hoje
-        label_periodo = f"Ano"
     else:
         with col_f2:
             dt_inicio = st.date_input("Data Inicial", data_hoje - datetime.timedelta(days=30))
         with col_f3:
             dt_fim = st.date_input("Data Final", data_hoje)
-        label_periodo = f"Personalizado"
 
     st.divider()
     str_inicio = f"{dt_inicio.strftime('%Y-%m-%d')} 00:00:00"
@@ -556,7 +551,6 @@ if st.session_state["perfil"] == "Admin":
                         preco = float(row.get("Preço Unitário", 0.0))
                         qtd = int(row.get("Quantidade Inicial", 0))
 
-                        # Verifica se o produto já existe para somar ou inserir
                         c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (s,))
                         exists = c.fetchone()
                         if exists:
