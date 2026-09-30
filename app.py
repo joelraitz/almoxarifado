@@ -82,18 +82,25 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             movimentacao_id INTEGER,
             solicitante TEXT,
+            destinatario TEXT,
             motivo TEXT,
             status TEXT DEFAULT 'Pendente',
             data_solicitacao TEXT,
-            resposta_admin TEXT
+            resposta_admin TEXT,
+            avaliador TEXT
         )
     """)
 
-    # Migração automática caso a tabela já exista sem a coluna resposta_admin
-    try:
-        c.execute("ALTER TABLE solicitacoes_ajuste ADD COLUMN resposta_admin TEXT")
-    except sqlite3.OperationalError:
-        pass
+    # Migrações automáticas de colunas se necessário
+    for col_sql in [
+        "ALTER TABLE solicitacoes_ajuste ADD COLUMN resposta_admin TEXT",
+        "ALTER TABLE solicitacoes_ajuste ADD COLUMN destinatario TEXT",
+        "ALTER TABLE solicitacoes_ajuste ADD COLUMN avaliador TEXT"
+    ]:
+        try:
+            c.execute(col_sql)
+        except sqlite3.OperationalError:
+            pass
 
     c.execute("SELECT count(*) FROM categorias")
     if c.fetchone()[0] == 0:
@@ -110,10 +117,13 @@ def init_db():
 
 init_db()
 
-def contar_solicitacoes_pendentes_admin():
+def contar_solicitacoes_pendentes(perfil, usuario):
     conn = get_connection()
     c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM solicitacoes_ajuste WHERE status = 'Pendente'")
+    if perfil == "Admin":
+        c.execute("SELECT COUNT(*) FROM solicitacoes_ajuste WHERE status = 'Pendente'")
+    else: # Supervisor gerencia as destinadas a Supervisor ou gerais pendentes
+        c.execute("SELECT COUNT(*) FROM solicitacoes_ajuste WHERE status = 'Pendente' AND (destinatario = 'Supervisor' OR destinatario IS NULL)")
     total = c.fetchone()[0]
     conn.close()
     return total
@@ -174,27 +184,30 @@ def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
     story.append(Paragraph(f"Período: {titulo_periodo} | Emitido em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
     story.append(Spacer(1, 10))
 
-    dados = [["ID", "Data", "Tipo", "SKU/Produto", "Qtd", "Usuário", "Descrição"]]
+    # Identificar colunas disponíveis para montar dinamicamente
+    colunas_df = df_mov.columns.tolist()
+    
+    # Montar cabeçalho base
+    headers = [str(c) for c in colunas_df]
+    dados = [headers]
+    
     for _, r in df_mov.iterrows():
-        desc = str(r['Descrição']) if pd.notna(r['Descrição']) else ""
-        if len(desc) > 20:
-            desc = desc[:17] + "..."
-        
-        p_prod = Paragraph(f"{r['SKU']} - {r['Produto']}", ParagraphStyle('Cell', fontSize=7, leading=8))
-        dados.append([
-            str(r['ID']), str(r['Data']), str(r['Tipo']),
-            p_prod, str(r['Qtd']),
-            str(r['Usuário']), desc
-        ])
+        linha = []
+        for col in colunas_df:
+            val = str(r[col]) if pd.notna(r[col]) else ""
+            if len(val) > 30:
+                val = val[:27] + "..."
+            linha.append(val)
+        dados.append(linha)
 
-    tabela = Table(dados, colWidths=[25, 80, 45, 155, 30, 55, 90])
+    tabela = Table(dados)
     tabela.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0f172a')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 7.5),
+        ('FONTSIZE', (0, 0), (-1, -1), 7),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
     ]))
     story.append(tabela)
@@ -305,12 +318,12 @@ st.title("📦 Almoxarifado Inteligente")
 perfil_atual = st.session_state["perfil"]
 
 if perfil_atual == "Admin":
-    num_pendentes = contar_solicitacoes_pendentes_admin()
+    num_pendentes = contar_solicitacoes_pendentes(perfil_atual, st.session_state["usuario"])
     label_correcoes = f"🛠️ Correções / Estornos (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️ Correções / Estornos"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 elif perfil_atual == "Supervisor":
-    num_pendentes = contar_solicitacoes_pendentes_admin()
+    num_pendentes = contar_solicitacoes_pendentes(perfil_atual, st.session_state["usuario"])
     label_correcoes = f"🛠️ Aprovar Correções (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️ Aprovar Correções"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Gerais", label_correcoes, "🏷️ Categorias"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_cat = abas
@@ -417,15 +430,17 @@ with aba_rel:
     else:
         st.subheader(f"📈 Meus Relatórios de Lançamentos ({st.session_state['usuario']})")
     
-    tipo_relatorio_op = st.selectbox(
-        "Selecione o Modelo de Relatório Formal",
-        [
-            "Relatório Geral de Movimentações (Entradas e Saídas)",
-            "Relatório Analítico de Entradas",
-            "Relatório Analítico de Saídas",
-            "Relatório de Itens Críticos / Abaixo do Mínimo"
-        ]
-    )
+    # Lista de opções de relatórios (Adicionando o relatório de auditoria exclusivo para o Admin)
+    lista_modelos_rel = [
+        "Relatório Geral de Movimentações (Entradas e Saídas)",
+        "Relatório Analítico de Entradas",
+        "Relatório Analítico de Saídas",
+        "Relatório de Itens Críticos / Abaixo do Mínimo"
+    ]
+    if perfil_atual == "Admin":
+        lista_modelos_rel.append("Relatório de Auditoria / Ações Gerais entre Utilizadores")
+
+    tipo_relatorio_op = st.selectbox("Selecione o Modelo de Relatório Formal", lista_modelos_rel)
 
     st.markdown("---")
     st.subheader("📅 Confirmação de Período")
@@ -477,7 +492,19 @@ with aba_rel:
     """
     
     if perfil_atual in ["Admin", "Supervisor"]:
-        if "Entradas" in tipo_relatorio_op:
+        if "Auditoria" in tipo_relatorio_op:
+            # Relatório exclusivo de auditoria de processos e solicitações entre usuários
+            q_audit = """
+                SELECT s.id as 'ID Sol.', s.data_solicitacao as 'Data Solicitação', s.solicitante as 'Operador', 
+                       s.destinatario as 'Destinado a', s.motivo as 'Motivo', s.status as 'Status', 
+                       COALESCE(s.avaliador, 'Não avaliado') as 'Avaliador', 
+                       COALESCE(s.resposta_admin, '-') as 'Resposta'
+                FROM solicitacoes_ajuste s
+                WHERE s.data_solicitacao BETWEEN ? AND ?
+                ORDER BY s.id DESC
+            """
+            df_m = pd.read_sql_query(q_audit, conn, params=(str_inicio, str_fim))
+        elif "Entradas" in tipo_relatorio_op:
             q = base_query + " WHERE m.tipo = 'Entrada' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
             df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
         elif "Saídas" in tipo_relatorio_op:
@@ -523,17 +550,20 @@ with aba_ajuste:
         st.subheader("⚠️ Gestão e Aprovação de Solicitações de Correção")
         
         conn = get_connection()
-        df_sol = pd.read_sql_query("SELECT s.id as 'ID_Solicitacao', s.movimentacao_id as 'ID_Mov', m.sku, p.nome as 'Produto', m.tipo, m.quantidade, s.solicitante, s.motivo, s.status FROM solicitacoes_ajuste s JOIN movimentacoes m ON s.movimentacao_id = m.id JOIN produtos p ON m.sku = p.sku WHERE s.status = 'Pendente'", conn)
+        if perfil_atual == "Admin":
+            df_sol = pd.read_sql_query("SELECT s.id as 'ID_Solicitacao', s.movimentacao_id as 'ID_Mov', m.sku, p.nome as 'Produto', m.tipo, m.quantidade, s.solicitante, s.destinatario, s.motivo, s.status FROM solicitacoes_ajuste s JOIN movimentacoes m ON s.movimentacao_id = m.id JOIN produtos p ON m.sku = p.sku WHERE s.status = 'Pendente'", conn)
+        else: # Supervisor vê as pendentes gerais ou direcionadas a supervisor
+            df_sol = pd.read_sql_query("SELECT s.id as 'ID_Solicitacao', s.movimentacao_id as 'ID_Mov', m.sku, p.nome as 'Produto', m.tipo, m.quantidade, s.solicitante, s.destinatario, s.motivo, s.status FROM solicitacoes_ajuste s JOIN movimentacoes m ON s.movimentacao_id = m.id JOIN produtos p ON m.sku = p.sku WHERE s.status = 'Pendente' AND (s.destinatario = 'Supervisor' OR s.destinatario IS NULL)", conn)
         conn.close()
         
         if not df_sol.empty:
-            st.markdown("### 📋 Solicitações Pendentes de Operadores")
+            st.markdown("### 📋 Solicitações Pendentes")
             st.dataframe(df_sol, use_container_width=True)
             
             with st.form("form_aprova_detalhado"):
                 sid = st.selectbox("Selecione o ID da Solicitação para Avaliar", df_sol["ID_Solicitacao"].tolist())
-                acao = st.radio("Decisão de Supervisão / Administração", ["Aprovar Correção", "Rejeitar Correção"], horizontal=True)
-                resp_admin = st.text_area("Justificativa / Descrição (Enviada como notificação ao operador)")
+                acao = st.radio("Decisão", ["Aprovar Correção", "Rejeitar Correção"], horizontal=True)
+                resp_admin = st.text_area("Justificativa / Descrição do Gestor")
                 
                 if st.form_submit_button("💾 Processar e Notificar Operador", use_container_width=True):
                     conn = get_connection()
@@ -549,23 +579,25 @@ with aba_ajuste:
                             f = -1 if tipo_m == "Entrada" else 1
                             c.execute("UPDATE produtos SET qtd_estoque = qtd_estoque + ? WHERE sku = ?", (qtd_m * f, sku_m))
                         
-                        c.execute("UPDATE solicitacoes_ajuste SET status = ?, resposta_admin = ? WHERE id = ?", (novo_status_sol, resp_admin, sid))
+                        # Grava o status, a resposta e o nome do usuário gestor que avaliou
+                        c.execute("UPDATE solicitacoes_ajuste SET status = ?, resposta_admin = ?, avaliador = ? WHERE id = ?", (novo_status_sol, resp_admin, st.session_state["usuario"], sid))
                         conn.commit()
-                        st.success(f"✅ Solicitação processada com sucesso! O operador foi notificado.")
+                        st.success(f"✅ Solicitação avaliada e processada com sucesso por {st.session_state['usuario']}!")
                         st.balloons()
                     conn.close()
                     st.rerun()
         else:
-            st.info("Não existem solicitações pendentes de operadores no momento.")
+            st.info("Não existem solicitações pendentes no momento.")
     else:
         # Painel do Operador para solicitar e acompanhar notificações de resposta
         st.subheader("🛠️ Minhas Solicitações e Notificações de Correção")
-        st.caption("Aqui pode acompanhar o status das suas solicitações de correção avaliadas pela supervisão/administração.")
+        st.caption("Acompanhe o status e verifique qual administrador ou supervisor respondeu à sua solicitação.")
         
         conn = get_connection()
         df_notif = pd.read_sql_query("""
             SELECT s.id as 'ID', m.data as 'Data Mov.', m.tipo as 'Tipo', p.nome as 'Produto', 
-                   s.motivo as 'Meu Motivo', s.status as 'Status', 
+                   s.destinatario as 'Enviado para', s.motivo as 'Meu Motivo', s.status as 'Status', 
+                   COALESCE(s.avaliador, 'Aguardando') as 'Avaliador',
                    COALESCE(s.resposta_admin, 'Aguardando análise') as 'Resposta da Administração' 
             FROM solicitacoes_ajuste s 
             JOIN movimentacoes m ON s.movimentacao_id = m.id 
@@ -590,19 +622,20 @@ with aba_ajuste:
         if not df_minhas_mov.empty:
             with st.form("form_pedir_correcão", clear_on_submit=True):
                 mov_id_sel = st.selectbox("Selecione o ID do Lançamento para Solicitar Correção", df_minhas_mov["ID"].tolist())
+                destinatario_escolha = st.selectbox("Enviar Solicitação para:", ["Administrador", "Supervisor"])
                 motivo_solic = st.text_area("Motivo detalhado da solicitação (ex: Quantidade lançada incorretamente)")
                 
-                if st.form_submit_button("📨 Enviar Solicitação aos Administradores/Supervisores", use_container_width=True):
+                if st.form_submit_button("📨 Enviar Solicitação", use_container_width=True):
                     if motivo_solic.strip():
                         conn = get_connection()
                         c = conn.cursor()
                         c.execute("""
-                            INSERT INTO solicitacoes_ajuste (movimentacao_id, solicitante, motivo, status, data_solicitacao, resposta_admin)
-                            VALUES (?, ?, ?, 'Pendente', ?, 'Aguardando avaliação')
-                        """, (mov_id_sel, st.session_state["usuario"], motivo_solic, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                            INSERT INTO solicitacoes_ajuste (movimentacao_id, solicitante, destinatario, motivo, status, data_solicitacao, resposta_admin, avaliador)
+                            VALUES (?, ?, ?, ?, 'Pendente', ?, 'Aguardando avaliação', NULL)
+                        """, (mov_id_sel, st.session_state["usuario"], destinatario_escolha, motivo_solic, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                         conn.commit()
                         conn.close()
-                        st.success("✅ Solicitação enviada com sucesso!")
+                        st.success(f"✅ Solicitação enviada com sucesso para o {destinatario_escolha}!")
                         st.balloons()
                         st.rerun()
                     else:
@@ -611,7 +644,7 @@ with aba_ajuste:
 # --- ABA CATEGORIAS (SUPERVISOR) ---
 if perfil_atual == "Supervisor":
     with aba_cat:
-        st.subheader("🏷️️ Categorias de Produtos")
+        st.subheader("🏷️ Categorias de Produtos")
         conn = get_connection()
         st.dataframe(pd.read_sql_query("SELECT nome FROM categorias", conn), use_container_width=True)
         conn.close()
@@ -748,13 +781,12 @@ if perfil_atual == "Admin":
     with aba_usr:
         st.subheader("👥 Gestão de Utilizadores (Incluir, Bloquear e Remover)")
         
-        tab_u1, tab_u2 = st.tabs(["➕ Incluir Novo Utilizador", "⚙️️ Gerir / Bloquear / Remover Utilizadores"])
+        tab_u1, tab_u2 = st.tabs(["➕ Incluir Novo Utilizador", "⚙️ Gerir / Bloquear / Remover Utilizadores"])
         
         with tab_u1:
             with st.form("form_novo_user", clear_on_submit=True):
                 novo_user = st.text_input("Nome de Utilizador (Login)").strip()
                 nova_senha_user = st.text_input("Senha", type="password")
-                # Incluindo a opção 'Supervisor' no cadastro de novos utilizadores
                 perfil_user = st.selectbox("Perfil de Acesso", ["Operador", "Supervisor", "Admin"])
                 pergunta_sec = st.text_input("Pergunta Secreta (ex: Qual a cidade natal?)", value="Qual a cidade natal?")
                 resposta_sec = st.text_input("Resposta Secreta", type="password")
@@ -807,12 +839,12 @@ if perfil_atual == "Admin":
                             st.rerun()
 
                 with col_acao2:
-                    st.write("🗑️️ **Remover Utilizador**")
+                    st.write("🗑️ **Remover Utilizador**")
                     if st.button("Excluir Utilizador Definitivamente", type="primary", use_container_width=True):
                         if user_selecionado == "admin":
                             st.error("Não é permitido excluir o utilizador administrador principal ('admin').")
                         elif user_selecionado == st.session_state["usuario"]:
-                            st.error("Not pode excluir a sua própria conta enquanto está conectado.")
+                            st.error("Não pode excluir a sua própria conta enquanto está conectado.")
                         else:
                             conn = get_connection()
                             c = conn.cursor()
