@@ -779,7 +779,7 @@ if st.session_state["perfil"] == "Admin":
             conn.close()
 
             if not df_estoque_atual.empty:
-                tipo_zeragem = st.radio("Escolha o modo de zeragem", ["Zerar Estoque de um Produto Específico", "⚠️ Zerar o Estoque de TODOS os Produtos"], horizontal=True)
+                tipo_zeragem = st.radio("Escolha o modo de zeragem", ["Zerar Estoque de um Produto Específico", "⚠️️ Zerar o Estoque de TODOS os Produtos"], horizontal=True)
 
                 if tipo_zeragem == "Zerar Estoque de um Produto Específico":
                     opcoes_zero = {f"{r['sku']} - {r['nome']} (Estoque Atual: {r['qtd_estoque']})": r['sku'] for _, r in df_estoque_atual.iterrows()}
@@ -833,7 +833,7 @@ if st.session_state["perfil"] == "Admin":
             else:
                 st.info("Nenhum produto cadastrado no sistema.")
 
-        # Sub-aba 5: Importação em Lote via CSV/Excel com limpeza de arquivo após processamento
+        # Sub-aba 5: Importação em Lote via CSV/Excel com atualização robusta
         with tab_p5:
             st.write("Envie uma planilha com os produtos para cadastrar múltiplos itens de uma só vez.")
             
@@ -874,16 +874,20 @@ if st.session_state["perfil"] == "Admin":
                                 preco_val = float(row.get("Preço Unitário", 0.0))
                                 qtd_ini = int(row.get("Quantidade Inicial", 0))
 
-                                c.execute("""
-                                    INSERT INTO produtos (sku, nome, categoria, qtd_estoque, qtd_minima, preco_unitario)
-                                    VALUES (?, ?, ?, ?, ?, ?)
-                                    ON CONFLICT(sku) DO UPDATE SET
-                                        nome = excluded.nome,
-                                        categoria = excluded.categoria,
-                                        qtd_estoque = excluded.qtd_estoque,
-                                        qtd_minima = excluded.qtd_minima,
-                                        preco_unitario = excluded.preco_unitario
-                                """, (sku_val, nome_val, cat_val, qtd_ini, min_val, preco_val))
+                                c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (sku_val,))
+                                prod_existe = c.fetchone()
+
+                                if prod_existe:
+                                    c.execute("""
+                                        UPDATE produtos 
+                                        SET nome = ?, categoria = ?, qtd_estoque = qtd_estoque + ?, qtd_minima = ?, preco_unitario = ?
+                                        WHERE sku = ?
+                                    """, (nome_val, cat_val, qtd_ini, min_val, preco_val, sku_val))
+                                else:
+                                    c.execute("""
+                                        INSERT INTO produtos (sku, nome, categoria, qtd_estoque, qtd_minima, preco_unitario)
+                                        VALUES (?, ?, ?, ?, ?, ?)
+                                    """, (sku_val, nome_val, cat_val, qtd_ini, min_val, preco_val))
                                 
                                 if qtd_ini > 0:
                                     c.execute("""
