@@ -382,8 +382,8 @@ if perfil_atual == "Admin":
 elif perfil_atual == "Supervisor":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
     label_correcoes = "🛠️ Aprovar Correções (🔴 " + str(num_pendentes) + ")" if num_pendentes > 0 else "🛠️ Aprovar Correções"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📋 Histórico de OS", "📈 Relatórios Gerais", label_correcoes, "🏷️ Categorias"])
-    aba_dash, aba_mov, aba_historico_os, aba_rel, aba_ajuste, aba_cat = abas
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📋 Histórico de OS", "📈 Relatórios Gerais", label_correcoes, "📝 Produtos", "🏷️ Categorias"])
+    aba_dash, aba_mov, aba_historico_os, aba_rel, aba_ajuste, aba_prod, aba_cat = abas
 else:
     num_notif = contar_notificacoes_operador(st.session_state["usuario"])
     label_solic_op = "🛠️ Solicitar Correção (🔔 " + str(num_notif) + ")" if num_notif > 0 else "🛠️ Solicitar Correção"
@@ -404,7 +404,7 @@ with aba_dash:
 
     if not df_produtos.empty:
         df_produtos["status"] = df_produtos.apply(
-            lambda x: "⚠️ CRÍTICO" if x["qtd_estoque"] <= x["qtd_minima"] else "✅ NORMAL", axis=1
+            lambda x: "⚠️️ CRÍTICO" if x["qtd_estoque"] <= x["qtd_minima"] else "✅ NORMAL", axis=1
         )
 
         col1, col2 = st.columns(2)
@@ -665,7 +665,7 @@ with aba_rel:
         ]
         if perfil_atual == "Admin":
             lista_modelos_rel.append("Relatório de Auditoria / Ações Gerais entre Utilizadores")
-            lista_modelos_rel.append("Relatório de Notas Fiscais (Auditoria Fiscal)")
+        lista_modelos_rel.append("Relatório de Notas Fiscais (Auditoria Fiscal)")
     else:
         st.subheader("📈 Meus Relatórios de Lançamentos (" + str(st.session_state['usuario']) + ")")
         lista_modelos_rel = [
@@ -860,14 +860,7 @@ with aba_ajuste:
                     else:
                         st.warning("Por favor, preencha o motivo.")
 
-if perfil_atual == "Supervisor":
-    with aba_cat:
-        st.subheader("🏷 Categorias de Produtos")
-        conn = get_connection()
-        st.dataframe(pd.read_sql_query("SELECT nome FROM categorias", conn), use_container_width=True)
-        conn.close()
-
-if perfil_atual == "Admin":
+if perfil_atual in ["Admin", "Supervisor"]:
     with aba_prod:
         st.subheader("📝 Gestão e Cadastro de Produtos & Notas Fiscais")
         tab_p1, tab_p2, tab_p3, tab_p4, tab_p5, tab_p6 = st.tabs([
@@ -1071,7 +1064,7 @@ if perfil_atual == "Admin":
 
         with tab_p6:
             st.subheader("🧾 Upload e Gestão de Notas Fiscais para Auditoria")
-            st.info("Guarde o documento ou comprovativo da Nota Fiscal (PDF ou imagem) vinculado a um produto específico. Estes dados ficam registados e integrados diretamente com o Relatório de Auditoria Fiscal.")
+            st.info("Guarde o documento ou comprovativo da Nota Fiscal (PDF ou imagem) vinculado a um produto específico. Estos dados ficam registados e integrados diretamente com o Relatório de Auditoria Fiscal.")
 
             conn = get_connection()
             prods_nf = pd.read_sql_query("SELECT sku, nome FROM produtos ORDER BY nome ASC", conn)
@@ -1110,7 +1103,7 @@ if perfil_atual == "Admin":
             st.divider()
             st.subheader("📋 Lista de Notas Fiscais Registadas")
             conn = get_connection()
-            df_nfs_cad = pd.read_sql_query("SELECT nf.id as 'ID', nf.numero_nf as 'Nº NF', p.name as 'Produto', nf.fornecedor as 'Fornecedor', nf.nome_arquivo as 'Ficheiro', nf.data_upload as 'Data', nf.usuario as 'Utilizador' FROM notas_fiscais nf JOIN produtos p ON nf.sku = p.sku ORDER BY nf.id DESC", conn) if False else pd.read_sql_query("SELECT nf.id as 'ID', nf.numero_nf as 'Nº NF', p.nome as 'Produto', nf.fornecedor as 'Fornecedor', nf.nome_arquivo as 'Ficheiro', nf.data_upload as 'Data', nf.usuario as 'Utilizador' FROM notas_fiscais nf JOIN produtos p ON nf.sku = p.sku ORDER BY nf.id DESC", conn)
+            df_nfs_cad = pd.read_sql_query("SELECT nf.id as 'ID', nf.numero_nf as 'Nº NF', p.nome as 'Produto', nf.fornecedor as 'Fornecedor', nf.nome_arquivo as 'Ficheiro', nf.data_upload as 'Data', nf.usuario as 'Utilizador' FROM notas_fiscais nf JOIN produtos p ON nf.sku = p.sku ORDER BY nf.id DESC", conn)
             conn.close()
 
             if not df_nfs_cad.empty:
@@ -1118,12 +1111,14 @@ if perfil_atual == "Admin":
             else:
                 st.info("Nenhuma nota fiscal registada até ao momento.")
 
+if perfil_atual == "Supervisor":
     with aba_cat:
-        st.subheader("🏷️ Categorias")
+        st.subheader("🏷 Categorias de Produtos")
         conn = get_connection()
         st.dataframe(pd.read_sql_query("SELECT nome FROM categorias", conn), use_container_width=True)
         conn.close()
 
+if perfil_atual == "Admin":
     with aba_usr:
         st.subheader("👥 Gestão de Utilizadores")
         tab_u1, tab_u2 = st.tabs(["➕ Incluir", "⚙️ Gestão / Bloquear"])
