@@ -119,16 +119,16 @@ def contar_solicitacoes_operador(usuario):
     conn.close()
     return total
 
-# --- GERADORES DE RELATÓRIO PDF ---
-def gerar_pdf_relatorio(df_produtos):
+# --- GERADORES DE RELATÓRIO PDF FORMALIZADOS ---
+def gerar_pdf_relatorio(df_produtos, titulo_relatorio):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
     story = []
     styles = getSampleStyleSheet()
 
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#0f172a'))
-    story.append(Paragraph("Relatório de Controle de Estoque Atual", title_style))
-    story.append(Paragraph(f"Gerado em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
+    story.append(Paragraph(f"Relatório Formal - {titulo_relatorio}", title_style))
+    story.append(Paragraph(f"Emitido em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
     story.append(Spacer(1, 10))
 
     dados = [["SKU", "Produto", "Categoria", "Qtd", "Mín", "Preço", "Status"]]
@@ -155,15 +155,15 @@ def gerar_pdf_relatorio(df_produtos):
     buffer.seek(0)
     return buffer.getvalue()
 
-def gerar_pdf_movimentacoes(df_mov, titulo_periodo):
+def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
     story = []
     styles = getSampleStyleSheet()
 
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#0f172a'))
-    story.append(Paragraph(f"Relatório de Movimentações - {titulo_periodo}", title_style))
-    story.append(Paragraph(f"Gerado em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
+    story.append(Paragraph(f"Relatório Formal de {tipo_relatorio}", title_style))
+    story.append(Paragraph(f"Período: {titulo_periodo} | Emitido em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
     story.append(Spacer(1, 10))
 
     dados = [["ID", "Data", "Tipo", "SKU/Produto", "Qtd", "Usuário", "Descrição"]]
@@ -298,7 +298,7 @@ if st.session_state["perfil"] == "Admin":
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 else:
     num_solic_operador = contar_solicitacoes_operador(st.session_state["usuario"])
-    label_solic_op = f"🛠️ Solicitar Correção (🔴 {num_solic_operador})" if num_solic_operador > 0 else "🛠️ Solicitar Correção"
+    label_solic_op = f"🛠️️ Solicitar Correção (🔴 {num_solic_operador})" if num_solic_operador > 0 else "🛠️ Solicitar Correção"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Meus Relatórios", label_solic_op])
     aba_dash, aba_mov, aba_rel, aba_ajuste = abas
 
@@ -324,9 +324,8 @@ with aba_dash:
         col1.metric("Total de SKUs", len(df_produtos))
         col2.metric("Itens em Estoque Crítico", (df_produtos["status"] == "⚠️ CRÍTICO").sum())
 
-        pdf_bytes = gerar_pdf_relatorio(df_produtos)
+        pdf_bytes = gerar_pdf_relatorio(df_produtos, "Estoque Geral Atual")
         
-        # Botão com Feedback Visual Imediato
         col_dl1, col_dl2 = st.columns([3, 1])
         with col_dl1:
             btn_pdf = st.download_button(
@@ -338,7 +337,7 @@ with aba_dash:
             )
         
         if btn_pdf:
-            st.success("✅ Relatório em PDF gerado com sucesso! Verifique a sua pasta de transferências.")
+            st.success("✅ Relatório em PDF gerado com sucesso!")
             st.balloons()
 
         fig_status = px.pie(df_produtos, names="status", color="status", color_discrete_map={"⚠️ CRÍTICO": "#FF4B4B", "✅ NORMAL": "#00CC96"}, hole=0.4)
@@ -393,51 +392,116 @@ with aba_mov:
     else:
         st.warning("Nenhum produto cadastrado.")
 
-# --- ABA RELATÓRIOS ---
+# --- ABA RELATÓRIOS (COM FORMALIZAÇÃO E CONFIRMAÇÃO DE PERÍODO) ---
 with aba_rel:
     if st.session_state["perfil"] == "Admin":
-        st.subheader("📈 Relatórios Avançados e Filtros por Período")
+        st.subheader("📈 Relatórios Avançados e Formalização por Período")
     else:
         st.subheader(f"📈 Meus Relatórios de Lançamentos ({st.session_state['usuario']})")
     
+    # Dropdown de Opção Formal de Relatório
+    tipo_relatorio_op = st.selectbox(
+        "Selecione o Modelo de Relatório Formal",
+        [
+            "Relatório Geral de Movimentações (Entradas e Saídas)",
+            "Relatório Analítico de Entradas",
+            "Relatório Analítico de Saídas",
+            "Relatório de Itens Críticos / Abaixo do Mínimo"
+        ]
+    )
+
+    st.markdown("---")
+    st.subheader("📅 Confirmação de Período")
+    
     col_f1, col_f2, col_f3 = st.columns([2, 2, 2])
     with col_f1:
-        periodo = st.selectbox("Selecione o Período", ["Hoje (Dia)", "Última Semana (7 dias)", "Mês Atual", "Ano Atual", "Personalizado"])
+        periodo = st.selectbox("Selecione o Filtro de Período", ["Hoje (Dia)", "Última Semana (7 dias)", "Mês Atual", "Ano Atual", "Personalizado"])
     
     data_hoje = datetime.date.today()
     if periodo == "Hoje (Dia)":
         dt_inicio = data_hoje
         dt_fim = data_hoje
+        label_periodo = f"Dia {data_hoje.strftime('%d/%m/%Y')}"
     elif periodo == "Última Semana (7 dias)":
         dt_inicio = data_hoje - datetime.timedelta(days=7)
         dt_fim = data_hoje
+        label_periodo = "Últimos 7 Dias"
     elif periodo == "Mês Atual":
         dt_inicio = datetime.date(data_hoje.year, data_hoje.month, 1)
         dt_fim = data_hoje
+        label_periodo = f"Mês Atual ({data_hoje.strftime('%m/%Y')})"
     elif periodo == "Ano Atual":
         dt_inicio = datetime.date(data_hoje.year, 1, 1)
         dt_fim = data_hoje
+        label_periodo = f"Ano de {data_hoje.year}"
     else:
         with col_f2:
             dt_inicio = st.date_input("Data Inicial", data_hoje - datetime.timedelta(days=30))
         with col_f3:
             dt_fim = st.date_input("Data Final", data_hoje)
+        label_periodo = f"Período de {dt_inicio.strftime('%d/%m/%Y')} até {dt_fim.strftime('%d/%m/%Y')}"
+
+    # Botão de Confirmação de Datas / Período
+    confirmar_periodo = st.button("🔍 Confirmar Período e Gerar Relatório", type="primary", use_container_width=True)
+
+    if confirmar_periodo:
+        st.success(f"✅ Período confirmado: **{label_periodo}** para o relatório: *{tipo_relatorio_op}*.")
 
     st.divider()
     str_inicio = f"{dt_inicio.strftime('%Y-%m-%d')} 00:00:00"
     str_fim = f"{dt_fim.strftime('%Y-%m-%d')} 23:59:59"
 
     conn = get_connection()
+    
+    # Construção da consulta de acordo com o relatório selecionado no dropdown
+    base_query = """
+        SELECT m.id as 'ID', m.data as 'Data', m.tipo as 'Tipo', m.sku as 'SKU', 
+               p.nome as 'Produto', m.quantidade as 'Qtd', m.usuario as 'Usuário', 
+               m.descricao as 'Descrição', m.status as 'Status' 
+        FROM movimentacoes m 
+        JOIN produtos p ON m.sku = p.sku 
+    """
+    
     if st.session_state["perfil"] == "Admin":
-        df_m = pd.read_sql_query("SELECT m.id as 'ID', m.data as 'Data', m.tipo as 'Tipo', m.sku as 'SKU', p.nome as 'Produto', m.quantidade as 'Qtd', m.usuario as 'Usuário', m.descricao as 'Descrição', m.status as 'Status' FROM movimentacoes m JOIN produtos p ON m.sku = p.sku WHERE m.data BETWEEN ? AND ? ORDER BY m.id DESC", conn, params=(str_inicio, str_fim))
+        if "Entradas" in tipo_relatorio_op:
+            q = base_query + " WHERE m.tipo = 'Entrada' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
+            df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
+        elif "Saídas" in tipo_relatorio_op:
+            q = base_query + " WHERE m.tipo = 'Saída' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
+            df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
+        elif "Críticos" in tipo_relatorio_op:
+            df_m = pd.read_sql_query("SELECT sku as 'SKU', nome as 'Produto', categoria as 'Categoria', qtd_estoque as 'Qtd Atual', qtd_minima as 'Qtd Mínima', preco_unitario as 'Preço' FROM produtos WHERE qtd_estoque <= qtd_minima", conn)
+        else:
+            q = base_query + " WHERE m.data BETWEEN ? AND ? ORDER BY m.id DESC"
+            df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
     else:
-        df_m = pd.read_sql_query("SELECT m.id as 'ID', m.data as 'Data', m.tipo as 'Tipo', m.sku as 'SKU', p.nome as 'Produto', m.quantidade as 'Qtd', m.usuario as 'Usuário', m.descricao as 'Descrição', m.status as 'Status' FROM movimentacoes m JOIN produtos p ON m.sku = p.sku WHERE m.usuario = ? AND m.data BETWEEN ? AND ? ORDER BY m.id DESC", conn, params=(st.session_state["usuario"], str_inicio, str_fim))
+        q = base_query + " WHERE m.usuario = ? AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
+        df_m = pd.read_sql_query(q, conn, params=(st.session_state["usuario"], str_inicio, str_fim))
+    
     conn.close()
 
     if not df_m.empty:
+        st.markdown(f"### Visualização Formal: *{tipo_relatorio_op}*")
+        st.caption(f"Período validado: {label_periodo}")
         st.dataframe(df_m, use_container_width=True)
+
+        if "Críticos" in tipo_relatorio_op:
+            pdf_bytes_rep = gerar_pdf_relatorio(df_m, tipo_relatorio_op)
+        else:
+            pdf_bytes_rep = gerar_pdf_movimentacoes_formal(df_m, label_periodo, tipo_relatorio_op)
+
+        btn_dl_formal = st.download_button(
+            "📥 Baixar Relatório Formal em PDF",
+            data=pdf_bytes_rep,
+            file_name="relatorio_formal_almoxarifado.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+        if btn_dl_formal:
+            st.success("✅ Relatório formal exportado com sucesso!")
+            st.balloons()
     else:
-        st.info("Nenhuma movimentação no período.")
+        st.info("Nenhum registo encontrado para o período e modelo selecionados.")
 
 # --- ABA CORREÇÃO ---
 with aba_ajuste:
@@ -661,11 +725,11 @@ if st.session_state["perfil"] == "Admin":
                             st.rerun()
 
                 with col_acao2:
-                    st.write("🗑️️ **Remover Utilizador**")
+                    st.write("🗑️ **Remover Utilizador**")
                     if st.button("Excluir Utilizador Definitivamente", type="primary", use_container_width=True):
                         if user_selecionado == "admin":
                             st.error("Não é permitido excluir o utilizador administrador principal ('admin').")
-                        elif user_selecionado == st.session_state["usuario"]:
+                        elif user_selecionado == "admin":
                             st.error("Não pode excluir a sua própria conta enquanto está conectado.")
                         else:
                             conn = get_connection()
