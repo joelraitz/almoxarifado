@@ -119,7 +119,7 @@ def contar_solicitacoes_operador(usuario):
     conn.close()
     return total
 
-# --- GERADORES DE RELATÓRIO PDF FORMALIZADOS ---
+# --- GERADORES DE RELATÓRIO PDF FORMALIZADOS (CORRIGIDO LARGURA DE COLUNAS) ---
 def gerar_pdf_relatorio(df_produtos, titulo_relatorio):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
@@ -141,12 +141,13 @@ def gerar_pdf_relatorio(df_produtos, titulo_relatorio):
             f"R${r['preco_unitario']:.2f}", status
         ])
 
-    tabela = Table(dados, colWidths=[50, 140, 80, 40, 40, 60, 60])
+    tabela = Table(dados, colWidths=[55, 150, 80, 35, 35, 55, 70])
     tabela.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0f172a')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
     ]))
     story.append(tabela)
@@ -169,21 +170,26 @@ def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
     dados = [["ID", "Data", "Tipo", "SKU/Produto", "Qtd", "Usuário", "Descrição"]]
     for _, r in df_mov.iterrows():
         desc = str(r['Descrição']) if pd.notna(r['Descrição']) else ""
-        if len(desc) > 25:
-            desc = desc[:22] + "..."
+        if len(desc) > 20:
+            desc = desc[:17] + "..."
+        
+        # Envolvendo texto em Paragraph para quebra de linha correta e sem sobreposição
+        p_prod = Paragraph(f"{r['SKU']} - {r['Produto']}", ParagraphStyle('Cell', fontSize=7, leading=8))
         dados.append([
             str(r['ID']), str(r['Data']), str(r['Tipo']),
-            f"{r['SKU']} - {r['Produto']}", str(r['Qtd']),
+            p_prod, str(r['Qtd']),
             str(r['Usuário']), desc
         ])
 
-    tabela = Table(dados, colWidths=[30, 85, 50, 140, 35, 65, 115])
+    # Larguras corrigidas e espaçadas para evitar sobreposição nas colunas posteriores
+    tabela = Table(dados, colWidths=[25, 80, 45, 155, 30, 55, 90])
     tabela.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0f172a')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('FONTSIZE', (0, 0), (-1, -1), 7.5),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
     ]))
     story.append(tabela)
@@ -298,7 +304,7 @@ if st.session_state["perfil"] == "Admin":
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 else:
     num_solic_operador = contar_solicitacoes_operador(st.session_state["usuario"])
-    label_solic_op = f"🛠️️ Solicitar Correção (🔴 {num_solic_operador})" if num_solic_operador > 0 else "🛠️ Solicitar Correção"
+    label_solic_op = f"🛠️ Solicitar Correção (🔴 {num_solic_operador})" if num_solic_operador > 0 else "🛠️ Solicitar Correção"
     abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Meus Relatórios", label_solic_op])
     aba_dash, aba_mov, aba_rel, aba_ajuste = abas
 
@@ -392,14 +398,13 @@ with aba_mov:
     else:
         st.warning("Nenhum produto cadastrado.")
 
-# --- ABA RELATÓRIOS (COM FORMALIZAÇÃO E CONFIRMAÇÃO DE PERÍODO) ---
+# --- ABA RELATÓRIOS ---
 with aba_rel:
     if st.session_state["perfil"] == "Admin":
         st.subheader("📈 Relatórios Avançados e Formalização por Período")
     else:
         st.subheader(f"📈 Meus Relatórios de Lançamentos ({st.session_state['usuario']})")
     
-    # Dropdown de Opção Formal de Relatório
     tipo_relatorio_op = st.selectbox(
         "Selecione o Modelo de Relatório Formal",
         [
@@ -441,7 +446,6 @@ with aba_rel:
             dt_fim = st.date_input("Data Final", data_hoje)
         label_periodo = f"Período de {dt_inicio.strftime('%d/%m/%Y')} até {dt_fim.strftime('%d/%m/%Y')}"
 
-    # Botão de Confirmação de Datas / Período
     confirmar_periodo = st.button("🔍 Confirmar Período e Gerar Relatório", type="primary", use_container_width=True)
 
     if confirmar_periodo:
@@ -452,8 +456,6 @@ with aba_rel:
     str_fim = f"{dt_fim.strftime('%Y-%m-%d')} 23:59:59"
 
     conn = get_connection()
-    
-    # Construção da consulta de acordo com o relatório selecionado no dropdown
     base_query = """
         SELECT m.id as 'ID', m.data as 'Data', m.tipo as 'Tipo', m.sku as 'SKU', 
                p.nome as 'Produto', m.quantidade as 'Qtd', m.usuario as 'Usuário', 
@@ -541,7 +543,7 @@ if st.session_state["perfil"] == "Admin":
         st.subheader("📝 Gestão e Cadastro de Produtos")
         
         tab_p1, tab_p2, tab_p3, tab_p4, tab_p5 = st.tabs([
-            "Cadastrar", "✏ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha"
+            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha"
         ])
         
         with tab_p1:
@@ -667,7 +669,7 @@ if st.session_state["perfil"] == "Admin":
     with aba_usr:
         st.subheader("👥 Gestão de Utilizadores (Incluir, Bloquear e Remover)")
         
-        tab_u1, tab_u2 = st.tabs(["➕ Incluir Novo Utilizador", "⚙️ Gerir / Bloquear / Remover Utilizadores"])
+        tab_u1, tab_u2 = st.tabs(["➕ Incluir Novo Utilizador", "⚙️️ Gerir / Bloquear / Remover Utilizadores"])
         
         with tab_u1:
             with st.form("form_novo_user", clear_on_submit=True):
@@ -725,11 +727,11 @@ if st.session_state["perfil"] == "Admin":
                             st.rerun()
 
                 with col_acao2:
-                    st.write("🗑️ **Remover Utilizador**")
+                    st.write("🗑️️ **Remover Utilizador**")
                     if st.button("Excluir Utilizador Definitivamente", type="primary", use_container_width=True):
                         if user_selecionado == "admin":
                             st.error("Não é permitido excluir o utilizador administrador principal ('admin').")
-                        elif user_selecionado == "admin":
+                        elif user_selecionado == st.session_state["usuario"]:
                             st.error("Não pode excluir a sua própria conta enquanto está conectado.")
                         else:
                             conn = get_connection()
