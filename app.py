@@ -387,8 +387,8 @@ elif perfil_atual == "Supervisor":
 else:
     num_notif = contar_notificacoes_operador(st.session_state["usuario"])
     label_solic_op = "🛠️ Solicitar Correção (🔔 " + str(num_notif) + ")" if num_notif > 0 else "🛠️ Solicitar Correção"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📋 Histórico de OS", "📈 Meus Relatórios", label_solic_op])
-    aba_dash, aba_mov, aba_historico_os, aba_rel, aba_ajuste = abas
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📋 Histórico de OS", "📈 Meus Relatórios", label_solic_op, "📝 Produtos", "🏷️ Categorias"])
+    aba_dash, aba_mov, aba_historico_os, aba_rel, aba_ajuste, aba_prod, aba_cat = abas
 
 with aba_dash:
     col_dash_title, col_dash_btn = st.columns([4, 1])
@@ -404,7 +404,7 @@ with aba_dash:
 
     if not df_produtos.empty:
         df_produtos["status"] = df_produtos.apply(
-            lambda x: "⚠️️ CRÍTICO" if x["qtd_estoque"] <= x["qtd_minima"] else "✅ NORMAL", axis=1
+            lambda x: "⚠️ CRÍTICO" if x["qtd_estoque"] <= x["qtd_minima"] else "✅ NORMAL", axis=1
         )
 
         col1, col2 = st.columns(2)
@@ -860,30 +860,36 @@ with aba_ajuste:
                     else:
                         st.warning("Por favor, preencha o motivo.")
 
-if perfil_atual in ["Admin", "Supervisor"]:
-    with aba_prod:
-        st.subheader("📝 Gestão e Cadastro de Produtos & Notas Fiscais")
+with aba_prod:
+    st.subheader("📝 Gestão e Cadastro de Produtos & Notas Fiscais")
+    
+    if perfil_atual in ["Admin", "Supervisor"]:
         tab_p1, tab_p2, tab_p3, tab_p4, tab_p5, tab_p6 = st.tabs([
-            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha", "🧾 Notas Fiscais (Auditoria)"
+            "Cadastrar", "✏️ Editar", "❌ Excluir", "🗑️️ Zerar Estoques", "📥 Importar Planilha", "🧾 Notas Fiscais (Auditoria)"
         ])
-        
-        with tab_p1:
-            with st.form("cad_p", clear_on_submit=True):
-                sku = st.text_input("SKU").strip()
-                nome = st.text_input("Nome").strip()
-                cat = st.selectbox("Categoria", ["Geral", "Consumíveis", "Ferramentas", "Escritório", "EPIs"])
-                qmin = st.number_input("Mínimo", value=5, step=1)
-                preco = st.number_input("Preço", value=0.0, step=0.5)
-                if st.form_submit_button("Salvar"):
-                    if sku and nome:
-                        conn = get_connection()
-                        c = conn.cursor()
-                        c.execute("INSERT OR REPLACE INTO produtos VALUES (?, ?, ?, 0, ?, ?)", (sku, nome, cat, int(qmin), float(preco)))
-                        conn.commit()
-                        conn.close()
-                        st.success("Cadastrado com sucesso!")
-                        st.rerun()
+    else:
+        tab_p1, tab_p5, tab_p6 = st.tabs([
+            "Cadastrar", "📥 Importar Planilha", "🧾 Notas Fiscais (Auditoria)"
+        ])
+    
+    with tab_p1:
+        with st.form("cad_p", clear_on_submit=True):
+            sku = st.text_input("SKU").strip()
+            nome = st.text_input("Nome").strip()
+            cat = st.selectbox("Categoria", ["Geral", "Consumíveis", "Ferramentas", "Escritório", "EPIs"])
+            qmin = st.number_input("Mínimo", value=5, step=1)
+            preco = st.number_input("Preço", value=0.0, step=0.5)
+            if st.form_submit_button("Salvar"):
+                if sku and nome:
+                    conn = get_connection()
+                    c = conn.cursor()
+                    c.execute("INSERT OR REPLACE INTO produtos VALUES (?, ?, ?, 0, ?, ?)", (sku, nome, cat, int(qmin), float(preco)))
+                    conn.commit()
+                    conn.close()
+                    st.success("Cadastrado com sucesso!")
+                    st.rerun()
 
+    if perfil_atual in ["Admin", "Supervisor"]:
         with tab_p4:
             st.subheader("🗑️ Opções de Zerar Estoque")
             modo_zerar = st.radio("Escolha o modo de zeragem:", ["Zeramento Individual (Por Produto)", "Zerar por Categoria / Grupo", "Zerar Todo o Estoque (Lote Geral)"], horizontal=True)
@@ -938,185 +944,184 @@ if perfil_atual in ["Admin", "Supervisor"]:
                     st.success("✅ Estoque geral zerado com sucesso!")
                     st.rerun()
 
-        with tab_p5:
-            st.subheader("📥 Importação e Atualização em Lote por Planilha")
-            df_mod = pd.DataFrame([
-                {"sku": "ALM-001", "nome": "Papel Sulfite A4 75g", "categoria": "Consumíveis", "minimo": 10, "preco": 25.5, "quantidade": 200},
-                {"sku": "ALM-002", "nome": "Caneta Esferográfica Azul", "categoria": "Escritório", "minimo": 20, "preco": 1.56, "quantidade": 200}
-            ])
-            st.download_button("Baixar Modelo CSV Exato", data=df_mod.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig'), file_name="modelo_almoxarifado.csv", mime="text/csv")
-            
-            st.divider()
-            
-            uploaded_file = st.file_uploader(
-                "Carregar arquivo de inventário (CSV ou Excel)", 
-                type=["csv", "xlsx", "xls"], 
-                key=f"uploader_{st.session_state['upload_counter']}"
-            )
-            
-            if uploaded_file is not None:
-                try:
-                    if uploaded_file.name.endswith('.csv'):
-                        df_upload = pd.read_csv(uploaded_file, sep=None, engine='python')
-                    else:
-                        df_upload = pd.read_excel(uploaded_file)
-                    
-                    st.write("Pré-visualização dos dados carregados:")
-                    st.dataframe(df_upload.head(), use_container_width=True)
+    with tab_p5:
+        st.subheader("📥 Importação e Atualização em Lote por Planilha")
+        df_mod = pd.DataFrame([
+            {"sku": "ALM-001", "nome": "Papel Sulfite A4 75g", "categoria": "Consumíveis", "minimo": 10, "preco": 25.5, "quantidade": 200},
+            {"sku": "ALM-002", "nome": "Caneta Esferográfica Azul", "categoria": "Escritório", "minimo": 20, "preco": 1.56, "quantidade": 200}
+        ])
+        st.download_button("Baixar Modelo CSV Exato", data=df_mod.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig'), file_name="modelo_almoxarifado.csv", mime="text/csv")
+        
+        st.divider()
+        
+        uploaded_file = st.file_uploader(
+            "Carregar arquivo de inventário (CSV ou Excel)", 
+            type=["csv", "xlsx", "xls"], 
+            key=f"uploader_{st.session_state['upload_counter']}"
+        )
+        
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.endswith('.csv'):
+                    df_upload = pd.read_csv(uploaded_file, sep=None, engine='python')
+                else:
+                    df_upload = pd.read_excel(uploaded_file)
+                
+                st.write("Pré-visualização dos dados carregados:")
+                st.dataframe(df_upload.head(), use_container_width=True)
 
-                    if st.button("📥 Processar e Inserir no Almoxarifado", type="primary"):
+                if st.button("📥 Processar e Inserir no Almoxarifado", type="primary"):
+                    conn = get_connection()
+                    c = conn.cursor()
+                    sucessos = 0
+                    
+                    df_upload.columns = [str(col).strip().lower() for col in df_upload.columns]
+                    
+                    for _, row in df_upload.iterrows():
+                        sku = ""
+                        for k in row.index:
+                            if "sku" in k:
+                                sku = str(row[k]).strip()
+                                break
+                        
+                        nome = ""
+                        for k in row.index:
+                            if "nome" in k:
+                                nome = str(row[k]).strip()
+                                break
+
+                        cat = "Geral"
+                        for k in row.index:
+                            if "categoria" in k or "grupo" in k:
+                                cat = str(row[k]).strip()
+                                break
+
+                        qtd_upload = 0
+                        for k in row.index:
+                            if any(termo in k for termo in ['quant', 'qtd', 'estoque', 'valor']):
+                                try:
+                                    val = row[k]
+                                    if pd.notna(val):
+                                        qtd_upload = int(float(str(val).replace(',', '.')))
+                                        break
+                                except:
+                                    pass
+
+                        preco = 0.0
+                        for k in row.index:
+                            if any(termo in k for termo in ['prec', 'preç', 'valor']):
+                                try:
+                                    val = row[k]
+                                    if pd.notna(val):
+                                        preco = float(str(val).replace('R$', '').replace(',', '.'))
+                                        break
+                                except:
+                                    pass
+
+                        minimo = 5
+                        for k in row.index:
+                            if any(termo in k for termo in ['min', 'mín']):
+                                try:
+                                    val = row[k]
+                                    if pd.notna(val):
+                                        minimo = int(float(str(val)))
+                                        break
+                                except:
+                                    pass
+
+                        if sku and sku != "nan":
+                            if not nome or nome == "nan":
+                                nome = f"Produto {sku}"
+
+                            c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (sku,))
+                            res_prod = c.fetchone()
+                            
+                            if res_prod:
+                                qtd_existente = int(res_prod[0])
+                                nova_qtd = qtd_existente + qtd_upload
+                                c.execute("""
+                                    UPDATE produtos 
+                                    SET nome = ?, categoria = ?, qtd_estoque = ?, qtd_minima = ?, preco_unitario = ? 
+                                    WHERE sku = ?
+                                """, (nome, cat, nova_qtd, minimo, preco, sku))
+                            else:
+                                c.execute("""
+                                    INSERT INTO produtos (sku, nome, categoria, qtd_estoque, qtd_minima, preco_unitario)
+                                    VALUES (?, ?, ?, ?, ?, ?)
+                                """, (sku, nome, cat, qtd_upload, minimo, preco))
+                            
+                            if qtd_upload > 0:
+                                c.execute("""
+                                    INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
+                                    VALUES (?, 'Entrada', ?, 'Importação em lote via planilha', ?, ?, 'Concluido')
+                                """, (sku, qtd_upload, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
+                            
+                            sucessos += 1
+
+                    conn.commit()
+                    conn.close()
+                    
+                    st.success(f"✅ Materiais adicionados com sucesso! ({sucessos} produtos processados e somados ao stock).")
+                    
+                    st.session_state["upload_counter"] += 1
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao ler o ficheiro: {e}")
+
+    with tab_p6:
+        st.subheader("🧾 Upload e Gestão de Notas Fiscais para Auditoria")
+        st.info("Guarde o documento ou comprovativo da Nota Fiscal (PDF ou imagem) vinculado a um produto específico. Estes dados ficam registados e integrados diretamente com o Relatório de Auditoria Fiscal.")
+
+        conn = get_connection()
+        prods_nf = pd.read_sql_query("SELECT sku, nome FROM produtos ORDER BY nome ASC", conn)
+        conn.close()
+
+        if not prods_nf.empty:
+            opcoes_nf = {str(row['sku']) + " - " + str(row['nome']): row["sku"] for _, row in prods_nf.iterrows()}
+            
+            with st.form("form_upload_nf", clear_on_submit=True):
+                sku_escolhido = st.selectbox("Selecione o Produto Referente à Nota Fiscal", list(opcoes_nf.keys()))
+                numero_nf_input = st.text_input("Número da Nota Fiscal (ex: NF-98321)").strip()
+                fornecedor_input = st.text_input("Nome do Fornecedor / Empresa Emitente").strip()
+                arquivo_nf_up = st.file_uploader("Ficheiro da Nota Fiscal (PDF, JPG, PNG)", type=["pdf", "jpg", "jpeg", "png"])
+                
+                if st.form_submit_button("💾 Guardar Nota Fiscal e Comunicar com Auditoria", type="primary"):
+                    if not numero_nf_input or not fornecedor_input or arquivo_nf_up is None:
+                        st.warning("Por favor, preencha o número da NF, o fornecedor e carregue o ficheiro.")
+                    else:
+                        sku_sel = opcoes_nf[sku_escolhido]
+                        nf_bytes = arquivo_nf_up.getvalue()
+                        nome_arq = arquivo_nf_up.name
+                        
                         conn = get_connection()
                         c = conn.cursor()
-                        sucessos = 0
-                        
-                        df_upload.columns = [str(col).strip().lower() for col in df_upload.columns]
-                        
-                        for _, row in df_upload.iterrows():
-                            sku = ""
-                            for k in row.index:
-                                if "sku" in k:
-                                    sku = str(row[k]).strip()
-                                    break
-                            
-                            nome = ""
-                            for k in row.index:
-                                if "nome" in k:
-                                    nome = str(row[k]).strip()
-                                    break
-
-                            cat = "Geral"
-                            for k in row.index:
-                                if "categoria" in k or "grupo" in k:
-                                    cat = str(row[k]).strip()
-                                    break
-
-                            qtd_upload = 0
-                            for k in row.index:
-                                if any(termo in k for termo in ['quant', 'qtd', 'estoque', 'valor']):
-                                    try:
-                                        val = row[k]
-                                        if pd.notna(val):
-                                            qtd_upload = int(float(str(val).replace(',', '.')))
-                                            break
-                                    except:
-                                        pass
-
-                            preco = 0.0
-                            for k in row.index:
-                                if any(termo in k for termo in ['prec', 'preç', 'valor']):
-                                    try:
-                                        val = row[k]
-                                        if pd.notna(val):
-                                            preco = float(str(val).replace('R$', '').replace(',', '.'))
-                                            break
-                                    except:
-                                        pass
-
-                            minimo = 5
-                            for k in row.index:
-                                if any(termo in k for termo in ['min', 'mín']):
-                                    try:
-                                        val = row[k]
-                                        if pd.notna(val):
-                                            minimo = int(float(str(val)))
-                                            break
-                                    except:
-                                        pass
-
-                            if sku and sku != "nan":
-                                if not nome or nome == "nan":
-                                    nome = f"Produto {sku}"
-
-                                c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (sku,))
-                                res_prod = c.fetchone()
-                                
-                                if res_prod:
-                                    qtd_existente = int(res_prod[0])
-                                    nova_qtd = qtd_existente + qtd_upload
-                                    c.execute("""
-                                        UPDATE produtos 
-                                        SET nome = ?, categoria = ?, qtd_estoque = ?, qtd_minima = ?, preco_unitario = ? 
-                                        WHERE sku = ?
-                                    """, (nome, cat, nova_qtd, minimo, preco, sku))
-                                else:
-                                    c.execute("""
-                                        INSERT INTO produtos (sku, nome, categoria, qtd_estoque, qtd_minima, preco_unitario)
-                                        VALUES (?, ?, ?, ?, ?, ?)
-                                    """, (sku, nome, cat, qtd_upload, minimo, preco))
-                                
-                                if qtd_upload > 0:
-                                    c.execute("""
-                                        INSERT INTO movimentacoes (sku, tipo, quantidade, descricao, data, usuario, status) 
-                                        VALUES (?, 'Entrada', ?, 'Importação em lote via planilha', ?, ?, 'Concluido')
-                                    """, (sku, qtd_upload, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"]))
-                                
-                                sucessos += 1
-
+                        c.execute(
+                            "INSERT INTO notas_fiscais (numero_nf, sku, fornecedor, arquivo_nf, nome_arquivo, data_upload, usuario) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (numero_nf_input, sku_sel, fornecedor_input, sqlite3.Binary(nf_bytes), nome_arq, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"])
+                        )
                         conn.commit()
                         conn.close()
-                        
-                        st.success(f"✅ Materiais adicionados com sucesso! ({sucessos} produtos processados e somados ao stock).")
-                        
-                        st.session_state["upload_counter"] += 1
+                        st.success("✅ Nota fiscal guardada com sucesso e integrada no relatório de auditoria!")
                         st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao ler o ficheiro: {e}")
+        else:
+            st.warning("Cadastre produtos primeiro para poder associar Notas Fiscais.")
 
-        with tab_p6:
-            st.subheader("🧾 Upload e Gestão de Notas Fiscais para Auditoria")
-            st.info("Guarde o documento ou comprovativo da Nota Fiscal (PDF ou imagem) vinculado a um produto específico. Estos dados ficam registados e integrados diretamente com o Relatório de Auditoria Fiscal.")
-
-            conn = get_connection()
-            prods_nf = pd.read_sql_query("SELECT sku, nome FROM produtos ORDER BY nome ASC", conn)
-            conn.close()
-
-            if not prods_nf.empty:
-                opcoes_nf = {str(row['sku']) + " - " + str(row['nome']): row["sku"] for _, row in prods_nf.iterrows()}
-                
-                with st.form("form_upload_nf", clear_on_submit=True):
-                    sku_escolhido = st.selectbox("Selecione o Produto Referente à Nota Fiscal", list(opcoes_nf.keys()))
-                    numero_nf_input = st.text_input("Número da Nota Fiscal (ex: NF-98321)").strip()
-                    fornecedor_input = st.text_input("Nome do Fornecedor / Empresa Emitente").strip()
-                    arquivo_nf_up = st.file_uploader("Ficheiro da Nota Fiscal (PDF, JPG, PNG)", type=["pdf", "jpg", "jpeg", "png"])
-                    
-                    if st.form_submit_button("💾 Guardar Nota Fiscal e Comunicar com Auditoria", type="primary"):
-                        if not numero_nf_input or not fornecedor_input or arquivo_nf_up is None:
-                            st.warning("Por favor, preencha o número da NF, o fornecedor e carregue o ficheiro.")
-                        else:
-                            sku_sel = opcoes_nf[sku_escolhido]
-                            nf_bytes = arquivo_nf_up.getvalue()
-                            nome_arq = arquivo_nf_up.name
-                            
-                            conn = get_connection()
-                            c = conn.cursor()
-                            c.execute(
-                                "INSERT INTO notas_fiscais (numero_nf, sku, fornecedor, arquivo_nf, nome_arquivo, data_upload, usuario) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                                (numero_nf_input, sku_sel, fornecedor_input, sqlite3.Binary(nf_bytes), nome_arq, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), st.session_state["usuario"])
-                            )
-                            conn.commit()
-                            conn.close()
-                            st.success("✅ Nota fiscal guardada com sucesso e integrada no relatório de auditoria!")
-                            st.rerun()
-            else:
-                st.warning("Cadastre produtos primeiro para poder associar Notas Fiscais.")
-
-            st.divider()
-            st.subheader("📋 Lista de Notas Fiscais Registadas")
-            conn = get_connection()
-            df_nfs_cad = pd.read_sql_query("SELECT nf.id as 'ID', nf.numero_nf as 'Nº NF', p.nome as 'Produto', nf.fornecedor as 'Fornecedor', nf.nome_arquivo as 'Ficheiro', nf.data_upload as 'Data', nf.usuario as 'Utilizador' FROM notas_fiscais nf JOIN produtos p ON nf.sku = p.sku ORDER BY nf.id DESC", conn)
-            conn.close()
-
-            if not df_nfs_cad.empty:
-                st.dataframe(df_nfs_cad, use_container_width=True)
-            else:
-                st.info("Nenhuma nota fiscal registada até ao momento.")
-
-if perfil_atual == "Supervisor":
-    with aba_cat:
-        st.subheader("🏷 Categorias de Produtos")
+        st.divider()
+        st.subheader("📋 Lista de Notas Fiscais Registadas")
         conn = get_connection()
-        st.dataframe(pd.read_sql_query("SELECT nome FROM categorias", conn), use_container_width=True)
+        df_nfs_cad = pd.read_sql_query("SELECT nf.id as 'ID', nf.numero_nf as 'Nº NF', p.nome as 'Produto', nf.fornecedor as 'Fornecedor', nf.nome_arquivo as 'Ficheiro', nf.data_upload as 'Data', nf.usuario as 'Utilizador' FROM notas_fiscais nf JOIN produtos p ON nf.sku = p.sku ORDER BY nf.id DESC", conn)
         conn.close()
+
+        if not df_nfs_cad.empty:
+            st.dataframe(df_nfs_cad, use_container_width=True)
+        else:
+            st.info("Nenhuma nota fiscal registada até ao momento.")
+
+with aba_cat:
+    st.subheader("🏷️ Categorias")
+    conn = get_connection()
+    st.dataframe(pd.read_sql_query("SELECT nome FROM categorias", conn), use_container_width=True)
+    conn.close()
 
 if perfil_atual == "Admin":
     with aba_usr:
