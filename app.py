@@ -463,7 +463,7 @@ if st.session_state["perfil"] == "Admin":
         st.subheader("📝 Gestão e Cadastro de Produtos")
         
         tab_p1, tab_p2, tab_p3, tab_p4, tab_p5 = st.tabs([
-            "Cadastrar", "✏️️ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha"
+            "Cadastrar", "✏ Editar", "❌ Excluir", "🗑️ Zerar Estoques", "📥 Importar Planilha"
         ])
         
         with tab_p1:
@@ -484,7 +484,7 @@ if st.session_state["perfil"] == "Admin":
                         st.rerun()
 
         with tab_p4:
-            st.subheader("🗑️️ Zerar Estoque")
+            st.subheader("🗑️ Zerar Estoque")
             conn = get_connection()
             df_z = pd.read_sql_query("SELECT sku, nome, qtd_estoque FROM produtos", conn)
             conn.close()
@@ -518,12 +518,14 @@ if st.session_state["perfil"] == "Admin":
                 st.info("Nenhum produto cadastrado.")
 
         with tab_p5:
-            st.subheader("📥 Importação em Lote por Planilha (Compatível com ponto e vírgula `;` e vírgula `,`)")
+            st.subheader("📥 Importação em Lote por Planilha (Padrão exato: sku, nome, categoria, minimo, preco, quantidade)")
             
+            # Modelo gerado exatamente com as colunas da sua planilha (sku, nome, categoria, minimo, preco, quantidade)
             df_mod = pd.DataFrame([
-                {"sku": "ALM-001", "nome": "Papel A4", "categoria": "Consumíveis", "minimo": 10, "preco": 25.0, "quantidade": 150}
+                {"sku": "ALM-001", "nome": "Papel Sulfite A4 75g", "categoria": "Consumíveis", "minimo": 10, "preco": 25.5, "quantidade": 200},
+                {"sku": "ALM-002", "nome": "Caneta Esferográfica Azul", "categoria": "Escritório", "minimo": 20, "preco": 1.56, "quantidade": 200}
             ])
-            st.download_button("Baixar Modelo CSV", data=df_mod.to_csv(index=False, sep=';').encode('utf-8-sig'), file_name="modelo.csv", mime="text/csv")
+            st.download_button("Baixar Modelo CSV Exato", data=df_mod.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig'), file_name="modelo_almoxarifado.csv", mime="text/csv")
 
             if "up_key" not in st.session_state:
                 st.session_state["up_key"] = 0
@@ -532,7 +534,6 @@ if st.session_state["perfil"] == "Admin":
 
             if up_file is not None:
                 try:
-                    # Tenta ler com separador ';' primeiro, se falhar ou tiver 1 coluna, lê com ','
                     if up_file.name.endswith(".csv") or up_file.name.endswith(".txt"):
                         content_bytes = up_file.getvalue()
                         try:
@@ -544,8 +545,8 @@ if st.session_state["perfil"] == "Admin":
                     else:
                         df_imp = pd.read_excel(up_file)
 
-                    # Normaliza os nomes das colunas
-                    df_imp.columns = [str(c).strip().lower() for c in df_imp.columns]
+                    # Normaliza os nomes das colunas para minúsculas e remove caracteres especiais invisíveis (como BOM do Excel)
+                    df_imp.columns = [str(c).strip().replace('\ufeff', '').lower() for c in df_imp.columns]
                     st.dataframe(df_imp.head(10), use_container_width=True)
 
                     if st.button("Executar Importação e Atualizar Estoque", type="primary"):
@@ -554,7 +555,7 @@ if st.session_state["perfil"] == "Admin":
                         count = 0
                         
                         for _, row in df_imp.iterrows():
-                            # Mapeamento ultrarrobusto para qualquer nome de coluna utilizado no arquivo CSV
+                            # Mapeamento exato das colunas da planilha do usuário
                             s = str(row.get("sku", row.get("código", row.get("codigo", "")))).strip()
                             n = str(row.get("nome", row.get("nome do produto", row.get("produto", "Produto")))).strip()
                             cat = str(row.get("categoria", "Geral")).strip()
@@ -566,10 +567,8 @@ if st.session_state["perfil"] == "Admin":
                                 c.execute("SELECT qtd_estoque FROM produtos WHERE sku = ?", (s,))
                                 exists = c.fetchone()
                                 if exists:
-                                    # Se já existe, atualiza os dados e soma a quantidade importada
                                     c.execute("UPDATE produtos SET nome = ?, categoria = ?, qtd_estoque = qtd_estoque + ?, qtd_minima = ?, preco_unitario = ? WHERE sku = ?", (n, cat, qtd, qmin, preco, s))
                                 else:
-                                    # Se não existe, cadastra com a quantidade inicial
                                     c.execute("INSERT INTO produtos VALUES (?, ?, ?, ?, ?, ?)", (s, n, cat, qtd, qmin, preco))
                                 
                                 if qtd > 0:
