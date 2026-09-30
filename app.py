@@ -93,7 +93,6 @@ def init_db():
         )
     """)
 
-    # Migrações automáticas de colunas se necessário
     for col_sql in [
         "ALTER TABLE solicitacoes_ajuste ADD COLUMN resposta_admin TEXT",
         "ALTER TABLE solicitacoes_ajuste ADD COLUMN destinatario TEXT",
@@ -157,10 +156,10 @@ def marcar_como_lido_operador(usuario):
     conn.commit()
     conn.close()
 
-# --- GERADORES DE RELATÓRIO PDF DINÂMICOS E ESPECÍFICOS ---
+# --- GERADORES DE RELATÓRIO PDF COM AJUSTE DE CÉLULAS E PARÁGRAFOS ---
 def gerar_pdf_relatorio(df_produtos, titulo_relatorio):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
     story = []
     styles = getSampleStyleSheet()
 
@@ -169,24 +168,33 @@ def gerar_pdf_relatorio(df_produtos, titulo_relatorio):
     story.append(Paragraph(f"Emitido em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
     story.append(Spacer(1, 10))
 
-    dados = [["SKU", "Produto", "Categoria", "Qtd", "Mín", "Preço", "Status"]]
+    cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontSize=8, leading=10)
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.whitesmoke, fontName='Helvetica-Bold')
+
+    headers = ["SKU", "Produto", "Categoria", "Qtd", "Mín", "Preço", "Status"]
+    data_matrix = [[Paragraph(h, header_style) for h in headers]]
+
     for _, r in df_produtos.iterrows():
         is_critico = r['qtd_estoque'] <= r['qtd_minima']
         status = "CRITICO" if is_critico else "NORMAL"
-        dados.append([
-            str(r['sku']), str(r['nome']), str(r['categoria']),
-            str(r['qtd_estoque']), str(r['qtd_minima']),
-            f"R${r['preco_unitario']:.2f}", status
+        data_matrix.append([
+            Paragraph(str(r['sku']), cell_style),
+            Paragraph(str(r['nome']), cell_style),
+            Paragraph(str(r['categoria']), cell_style),
+            Paragraph(str(r['qtd_estoque']), cell_style),
+            Paragraph(str(r['qtd_minima']), cell_style),
+            Paragraph(f"R${r['preco_unitario']:.2f}", cell_style),
+            Paragraph(status, cell_style)
         ])
 
-    tabela = Table(dados, colWidths=[55, 150, 80, 35, 35, 55, 70])
+    tabela = Table(data_matrix, colWidths=[55, 160, 85, 35, 35, 60, 75])
     tabela.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0f172a')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
     ]))
     story.append(tabela)
 
@@ -196,7 +204,7 @@ def gerar_pdf_relatorio(df_produtos, titulo_relatorio):
 
 def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
     story = []
     styles = getSampleStyleSheet()
 
@@ -205,33 +213,33 @@ def gerar_pdf_movimentacoes_formal(df_mov, titulo_periodo, tipo_relatorio):
     story.append(Paragraph(f"Período: {titulo_periodo} | Emitido em: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
     story.append(Spacer(1, 10))
 
+    cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontSize=7.5, leading=9.5)
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.whitesmoke, fontName='Helvetica-Bold')
+
     colunas_df = df_mov.columns.tolist()
-    headers = [str(c) for c in colunas_df]
-    dados = [headers]
-    
+    headers = [Paragraph(str(c), header_style) for c in colunas_df]
+    data_matrix = [headers]
+
     for _, r in df_mov.iterrows():
-        linha = []
+        row_cells = []
         for col in colunas_df:
             val = str(r[col]) if pd.notna(r[col]) else ""
-            if len(val) > 30:
-                val = val[:27] + "..."
-            linha.append(val)
-        dados.append(linha)
+            row_cells.append(Paragraph(val, cell_style))
+        data_matrix.append(row_cells)
 
-    # Definir largura proporcional baseada na quantidade de colunas para caber perfeitamente na página A4 (largura útil ~580)
+    # Definir larguras proporcionais para acomodar perfeitamente os textos sem sobreposição (Largura útil A4 = ~555)
     num_cols = len(colunas_df)
-    largura_util = 580
+    largura_util = 555
     col_widths = [largura_util / num_cols] * num_cols
 
-    tabela = Table(dados, colWidths=col_widths)
+    tabela = Table(data_matrix, colWidths=col_widths)
     tabela.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0f172a')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 7),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
     ]))
     story.append(tabela)
 
@@ -343,7 +351,7 @@ perfil_atual = st.session_state["perfil"]
 if perfil_atual == "Admin":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
     label_correcoes = f"🛠️ Correções / Estornos (🔴 {num_pendentes})" if num_pendentes > 0 else "🛠️ Correções / Estornos"
-    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷 Categorias", "👥 Gestão de Utilizadores"])
+    abas = st.tabs(["📊 Dashboard", "🔄 Lançar Entrada/Saída", "📈 Relatórios Avançados", label_correcoes, "📝 Produtos", "🏷️ Categorias", "👥 Gestão de Utilizadores"])
     aba_dash, aba_mov, aba_rel, aba_ajuste, aba_prod, aba_cat, aba_usr = abas
 elif perfil_atual == "Supervisor":
     num_pendentes = contar_solicitacoes_pendentes(perfil_atual)
@@ -513,32 +521,38 @@ with aba_rel:
         JOIN produtos p ON m.sku = p.sku 
     """
     
-    if perfil_atual in ["Admin", "Supervisor"]:
-        if "Auditoria" in tipo_relatorio_op:
-            q_audit = """
-                SELECT s.id as 'ID Sol.', s.data_solicitacao as 'Data Solicitação', s.solicitante as 'Operador', 
-                       s.destinatario as 'Destinado a', s.motivo as 'Motivo', s.status as 'Status', 
-                       COALESCE(s.avaliador, 'Não avaliado') as 'Avaliador', 
-                       COALESCE(s.resposta_admin, '-') as 'Resposta'
-                FROM solicitacoes_ajuste s
-                WHERE s.data_solicitacao BETWEEN ? AND ?
-                ORDER BY s.id DESC
-            """
-            df_m = pd.read_sql_query(q_audit, conn, params=(str_inicio, str_fim))
-        elif "Entradas" in tipo_relatorio_op:
-            q = base_query + " WHERE m.tipo = 'Entrada' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
-            df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
-        elif "Saídas" in tipo_relatorio_op:
-            q = base_query + " WHERE m.tipo = 'Saída' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
-            df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
-        elif "Críticos" in tipo_relatorio_op:
-            df_m = pd.read_sql_query("SELECT sku as 'SKU', nome as 'Produto', categoria as 'Categoria', qtd_estoque as 'Qtd Atual', qtd_minima as 'Qtd Mínima', preco_unitario as 'Preço' FROM produtos WHERE qtd_estoque <= qtd_minima", conn)
-        else:
+    # Nomes de arquivos dinâmicos baseados na escolha do utilizador
+    if "Auditoria" in tipo_relatorio_op:
+        nome_arquivo_pdf = "relatorio_de_auditoria.pdf"
+        q_audit = """
+            SELECT s.id as 'ID Sol.', s.data_solicitacao as 'Data Solicitação', s.solicitante as 'Operador', 
+                   s.destinatario as 'Destinado a', s.motivo as 'Motivo', s.status as 'Status', 
+                   COALESCE(s.avaliador, 'Não avaliado') as 'Avaliador', 
+                   COALESCE(s.resposta_admin, '-') as 'Resposta'
+            FROM solicitacoes_ajuste s
+            WHERE s.data_solicitacao BETWEEN ? AND ?
+            ORDER BY s.id DESC
+        """
+        df_m = pd.read_sql_query(q_audit, conn, params=(str_inicio, str_fim))
+    elif "Entradas" in tipo_relatorio_op:
+        nome_arquivo_pdf = "relatorio_analitico_entradas.pdf"
+        q = base_query + " WHERE m.tipo = 'Entrada' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
+        df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
+    elif "Saídas" in tipo_relatorio_op:
+        nome_arquivo_pdf = "relatorio_analitico_saidas.pdf"
+        q = base_query + " WHERE m.tipo = 'Saída' AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
+        df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
+    elif "Críticos" in tipo_relatorio_op:
+        nome_arquivo_pdf = "relatorio_itens_criticos.pdf"
+        df_m = pd.read_sql_query("SELECT sku as 'SKU', nome as 'Produto', categoria as 'Categoria', qtd_estoque as 'Qtd Atual', qtd_minima as 'Qtd Mínima', preco_unitario as 'Preço' FROM produtos WHERE qtd_estoque <= qtd_minima", conn)
+    else:
+        nome_arquivo_pdf = "relatorio_geral_movimentacoes.pdf"
+        if perfil_atual in ["Admin", "Supervisor"]:
             q = base_query + " WHERE m.data BETWEEN ? AND ? ORDER BY m.id DESC"
             df_m = pd.read_sql_query(q, conn, params=(str_inicio, str_fim))
-    else:
-        q = base_query + " WHERE m.usuario = ? AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
-        df_m = pd.read_sql_query(q, conn, params=(st.session_state["usuario"], str_inicio, str_fim))
+        else:
+            q = base_query + " WHERE m.usuario = ? AND m.data BETWEEN ? AND ? ORDER BY m.id DESC"
+            df_m = pd.read_sql_query(q, conn, params=(st.session_state["usuario"], str_inicio, str_fim))
     
     conn.close()
 
@@ -555,7 +569,7 @@ with aba_rel:
         btn_dl_formal = st.download_button(
             "📥 Baixar Relatório Formal em PDF",
             data=pdf_bytes_rep,
-            file_name="relatorio_formal_almoxarifado.pdf",
+            file_name=nome_arquivo_pdf,
             mime="application/pdf",
             use_container_width=True
         )
@@ -570,7 +584,7 @@ with aba_ajuste:
     if perfil_atual in ["Admin", "Supervisor"]:
         marcar_como_lido_gestor(perfil_atual)
 
-        st.subheader("⚠️️ Gestão e Aprovação de Solicitações de Correção")
+        st.subheader("⚠️ Gestão e Aprovação de Solicitações de Correção")
         
         conn = get_connection()
         if perfil_atual == "Admin":
@@ -699,7 +713,7 @@ if perfil_atual == "Admin":
                         st.rerun()
 
         with tab_p4:
-            st.subheader("🗑️️ Zerar Estoque")
+            st.subheader("🗑️ Zerar Estoque")
             conn = get_connection()
             df_z = pd.read_sql_query("SELECT sku, nome, qtd_estoque FROM produtos", conn)
             conn.close()
@@ -796,7 +810,7 @@ if perfil_atual == "Admin":
                     st.error(f"Erro ao processar arquivo: {e}")
 
     with aba_cat:
-        st.subheader("🏷️ Categorias")
+        st.subheader("🏷️️ Categorias")
         conn = get_connection()
         st.dataframe(pd.read_sql_query("SELECT nome FROM categorias", conn), use_container_width=True)
         conn.close()
